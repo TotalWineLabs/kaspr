@@ -30,6 +30,7 @@ from .webview import (
     WebViewProcessorOperation,
     WebViewProcessorTopicSendOperator,
     WebViewProcessorMapOperator,
+    WebViewProcessorFilterOperator,
 )
 from .table import (
     TableSpec,
@@ -78,6 +79,7 @@ __all__ = [
     "WebViewProcessorOperation",
     "WebViewProcessorTopicSendOperator",
     "WebViewProcessorMapOperator",
+    "WebViewProcessorFilterOperator",
     "TableSpec",
     "TableWindowSpec",
     "TableWindowHoppingSpec",

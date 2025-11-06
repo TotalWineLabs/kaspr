@@ -26,6 +26,15 @@ class WebViewProcessorTopicSendOperator(ProcessorOperatorT, TopicOutSpec):
             return self.skip_value
         return await self.send(value, **kwargs)
 
+class WebViewProcessorFilterOperator(ProcessorOperatorT, PyCode):
+    
+    async def process(self, value: T, **kwargs) -> T:
+        predicate = await maybe_async(self.func(value, **kwargs))
+        if not predicate:
+            return self.skip_value
+        else:
+            return value
+        
 class WebViewProcessorMapOperator(ProcessorOperatorT, PyCode):
     """Operator to reformat a value."""
     async def process(self, value: T, **kwargs) -> T:
@@ -37,6 +46,7 @@ class WebViewProcessorOperation(SpecComponent):
     name: str
     topic_send: Optional[WebViewProcessorTopicSendOperator]
     map: Optional[WebViewProcessorMapOperator]
+    filter: Optional[WebViewProcessorFilterOperator]
     table_refs: Optional[List[TableRefSpec]]
 
     app: KasprAppT = None
@@ -46,7 +56,7 @@ class WebViewProcessorOperation(SpecComponent):
 
     def get_operator(self) -> ProcessorOperatorT:
         """Get the specific operator type for this operation block."""
-        return next((x for x in [self.topic_send, self.map] if x is not None), None)
+        return next((x for x in [self.topic_send, self.map, self.filter] if x is not None), None)
 
     def prepare_tables(self) -> Dict[str, Table]:
         """Tables for operation keyed by argument name."""

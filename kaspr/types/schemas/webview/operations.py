@@ -4,6 +4,7 @@ from kaspr.types.models.webview import (
     WebViewProcessorOperation,
     WebViewProcessorTopicSendOperator,
     WebViewProcessorMapOperator,
+    WebViewProcessorFilterOperator
 )
 from kaspr.types.schemas.pycode import PyCodeSchema
 from kaspr.types.schemas.topicout import TopicOutSpecSchema
@@ -15,6 +16,9 @@ class WebViewProcessorTopicSendOperatorSchema(TopicOutSpecSchema):
 
 class WebViewProcessorMapOperatorSchema(PyCodeSchema):
     __model__ = WebViewProcessorMapOperator
+
+class WebViewProcessorFilterOperatorSchema(PyCodeSchema):
+    __model__ = WebViewProcessorFilterOperator
 
 
 class WebViewProcessorOperationSchema(BaseSchema):
@@ -30,6 +34,12 @@ class WebViewProcessorOperationSchema(BaseSchema):
     map = fields.Nested(
         WebViewProcessorMapOperatorSchema(),
         data_key="map",
+        allow_none=True,
+        load_default=None,
+    )
+    filter = fields.Nested(
+        WebViewProcessorFilterOperatorSchema(),
+        data_key="filter",
         allow_none=True,
         load_default=None,
     )

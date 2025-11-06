@@ -5,7 +5,8 @@ from .processor import WebViewProcessorSpecSchema
 from .operations import (
     WebViewProcessorOperationSchema, 
     WebViewProcessorTopicSendOperatorSchema,
-    WebViewProcessorMapOperatorSchema
+    WebViewProcessorMapOperatorSchema,
+    WebViewProcessorFilterOperatorSchema
 )
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "WebViewProcessorSpecSchema",
     "WebViewProcessorOperationSchema",
     "WebViewProcessorTopicSendOperatorSchema",
-    "WebViewProcessorMapOperatorSchema"
+    "WebViewProcessorMapOperatorSchema",
+    "WebViewProcessorFilterOperatorSchema"
 ]

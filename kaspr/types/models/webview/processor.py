@@ -44,12 +44,13 @@ class WebViewProcessorSpec(SpecComponent):
                     return self.response.build_success(web)
                 operation = ops[0]
                 operator = operation.operator
+                tables = operation.tables
                 scope = {
                     **init_scope,
                     "context": {**context},
                 }
                 operator.with_scope(scope)
-                result = await operator.process(request, **kwargs)
+                result = await operator.process(request, **tables, **kwargs)
                 if result == operator.skip_value:
                     return
                 gen = ensure_generator(result, async_gen=isasyncgen(result))
@@ -61,13 +62,14 @@ class WebViewProcessorSpec(SpecComponent):
                         for operation in ops[1:]:
                             next_values = []
                             operator = operation.operator
+                            tables = operation.tables
                             for current_value in current_values:
                                 scope = {
                                     **init_scope,
                                     "context": {**context},
                                 }
                                 operator.with_scope(scope)
-                                result = await operator.process(current_value)
+                                result = await operator.process(current_value, **tables)
                                 if result == operator.skip_value:
                                     continue
                                 # Collect all results
@@ -93,13 +95,14 @@ class WebViewProcessorSpec(SpecComponent):
                         for operation in ops[1:]:
                             next_values = []
                             operator = operation.operator
+                            tables = operation.tables
                             for current_value in current_values:
                                 scope = {
                                     **init_scope,
                                     "context": {**context},
                                 }
                                 operator.with_scope(scope)
-                                result = await operator.process(current_value)
+                                result = await operator.process(current_value, **tables)
                                 if result == operator.skip_value:
                                     continue
                                 # Collect all results

@@ -6,6 +6,7 @@ from .operations import (
     WebViewProcessorOperation,
     WebViewProcessorTopicSendOperator,
     WebViewProcessorMapOperator,
+    WebViewProcessorFilterOperator
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "WebViewProcessorOperation",
     "WebViewProcessorTopicSendOperator",
     "WebViewProcessorMapOperator",
+    "WebViewProcessorFilterOperator"
 ]

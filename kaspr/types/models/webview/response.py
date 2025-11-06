@@ -77,22 +77,23 @@ class WebViewResponseSpec(BaseModel):
         """Build response for error condition."""
         content_type = self.content_type or CONTENT_TYPE["plain"]
 
+        _err = error.to_dict()
         if self.status_code_selector_error_func:
-            status_code = self.status_code_selector_error_func(error)
+            status_code = self.status_code_selector_error_func(_err)
         else:
             status_code = 500
 
         if self.headers_selector_error_func:
-            headers = self.headers_selector_error_func(error)
+            headers = self.headers_selector_error_func(_err)
         elif self.headers:
             headers = self.headers
         else:
             headers = None
 
         if self.body_selector_error_func:
-            data = self.body_selector_error_func(error)
+            data = self.body_selector_error_func(_err)
         else:
-            data = error.to_dict()
+            data = _err
 
         if self.content_type == CONTENT_TYPE["html"]:
             response = web.html
