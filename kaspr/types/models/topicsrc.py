@@ -34,7 +34,8 @@ class TopicSrcSpec(SpecComponent):
             "config": self.config,
         }
         if self.name:
-            return self.app.topic(self.name, **options)
+            topics = [t.strip() for t in self.name.split(',')]
+            return self.app.topic(*topics, **options)
         else:
             # XXX pattern does not work yet
             return self.app.topic(pattern=self.pattern, **options)
