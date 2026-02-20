@@ -1,4 +1,4 @@
-__version__ = "0.7.6"
+__version__ = "0.8.0"
 
 from .core.app import KasprApp
 from .scheduler.manager import MessageScheduler

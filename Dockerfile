@@ -1,4 +1,4 @@
-FROM twmvmirz/py3.9-rocksdb8.1.1:latest
+FROM twmvmirz/py3.12-rocksdb8.1.1:latest
 
 # Workaround for RocksDB memory leak
 # (https://blog.cloudflare.com/the-effect-of-switching-to-tcmalloc-on-rocksdb-memory-use/)

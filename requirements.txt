@@ -1,6 +1,6 @@
 pytz
-pyyaml==6.0
-twm-faust[rocksdict,prometheus]>=1.16.8,<1.17.0
+pyyaml==6.0.3
+twm-faust[rocksdict,prometheus]>=1.17.6,<1.18.0
 python-benedict==0.33.2
 marshmallow==3.21.3
 mmh3==5.1.0
