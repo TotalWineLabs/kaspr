@@ -15,6 +15,7 @@ from .topic import KasprTopicT
 from .operation import ProcessorOperatorT
 from .code import CodeT
 from .webview import KasprWebViewT, KasprWebRequest, KasprWebResponse, KasprWeb
+from .join import KasprJoinT
 
 __all__ = [
     "TTLocation",
@@ -41,4 +42,5 @@ __all__ = [
     "KasprWebRequest",
     "KasprWebResponse",
     "KasprWeb",
+    "KasprJoinT",
 ]

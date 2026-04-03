@@ -38,6 +38,7 @@ from .table import (
     TableWindowTumblingSpecSchema,
 )
 from .tableref import TableRefSpecSchema
+from .join import JoinSpecSchema
 from .task import TaskSpecSchema, TaskScheduleSpecSchema
 
 
@@ -74,6 +75,7 @@ __all__ = [
     "TableWindowHoppingSpecSchema",
     "TableWindowTumblingSpecSchema",
     "TableRefSpecSchema",
+    "JoinSpecSchema",
     "TaskScheduleSpecSchema",
     "TaskSpecSchema",
 ]

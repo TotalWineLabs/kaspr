@@ -62,6 +62,8 @@ class KasprApp(KasprAppT, faust.App):
 
     on_rebalance_started: SyncSignal = SyncSignal()
 
+    _named_channels: dict = None
+
     def _init_signals(self) -> None:
         super()._init_signals()
         self.on_rebalance_started = self.on_rebalance_started.with_default_sender(self)
@@ -101,6 +103,18 @@ class KasprApp(KasprAppT, faust.App):
     def on_rebalance_end(self) -> None:
         """Call when rebalancing is done."""
         super().on_rebalance_end()
+
+    def register_named_channel(self, name: str, channel) -> None:
+        """Register a named channel (e.g., from a KasprJoin output)."""
+        if self._named_channels is None:
+            self._named_channels = {}
+        self._named_channels[name] = channel
+
+    def resolve_named_channel(self, name: str):
+        """Resolve a named channel by name. Returns None if not found."""
+        if self._named_channels is None:
+            return None
+        return self._named_channels.get(name)
 
     def _create_directories(self) -> None:
         super()._create_directories()

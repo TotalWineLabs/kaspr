@@ -10,6 +10,11 @@ class ChannelSpec(SpecComponent):
     _channel: KasprChannelT = None
 
     def prepare_channel(self) -> KasprChannelT:
+        # Try named channel first (e.g., from a KasprJoin output)
+        named = self.app.resolve_named_channel(self.name)
+        if named is not None:
+            return named
+        # Fall back to creating a new in-memory channel
         return self.app.channel(self.name)
 
     @property

@@ -39,6 +39,7 @@ from .table import (
     TableWindowTumblingSpec,
 )
 from .tableref import TableRefSpec
+from .join import JoinSpec
 from .task import (
     TaskSpec,
     TaskScheduleSpec,
