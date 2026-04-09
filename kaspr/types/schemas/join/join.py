@@ -13,8 +13,8 @@ class JoinSpecSchema(BaseSchema):
     description = fields.String(
         data_key="description", allow_none=True, load_default=None
     )
-    left_table = fields.String(data_key="leftTable", required=True)
-    right_table = fields.String(data_key="rightTable", required=True)
+    left_table = fields.String(data_key="left_table", required=True)
+    right_table = fields.String(data_key="right_table", required=True)
     extractor = fields.Nested(
         PyCodeSchema(), data_key="extractor", required=True
     )
@@ -22,5 +22,5 @@ class JoinSpecSchema(BaseSchema):
         data_key="type", allow_none=True, load_default="inner"
     )
     output_channel = fields.String(
-        data_key="outputChannel", allow_none=True, load_default=None
+        data_key="output_channel", allow_none=True, load_default=None
     )

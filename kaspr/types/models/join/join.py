@@ -4,7 +4,7 @@ from typing import Optional
 from kaspr.types.models.base import SpecComponent
 from kaspr.types.models.pycode import PyCode
 from kaspr.types.app import KasprAppT
-from kaspr.types import KasprJoinT, ChannelT
+from kaspr.types import KasprJoinT, KasprChannelT, KasprTableT
 
 
 class JoinSpec(SpecComponent):
@@ -14,16 +14,16 @@ class JoinSpec(SpecComponent):
     left_table: str
     right_table: str
     extractor: PyCode
-    join_type: Optional[str]        # "inner" or "left"
+    join_type: Optional[str]
     output_channel: Optional[str]
 
     app: KasprAppT = None
 
     _join: KasprJoinT = None
 
-    def _prepare_join(self) -> ChannelT:
-        left_table = self.app.tables[self.left_table]
-        right_table = self.app.tables[self.right_table]
+    def _prepare_join(self) -> KasprChannelT:
+        left_table: KasprTableT = self.app.tables[self.left_table]
+        right_table: KasprTableT = self.app.tables[self.right_table]
         extractor = self.extractor.func
         inner = (self.join_type or "inner") == "inner"
         channel = left_table.key_join(
@@ -34,7 +34,7 @@ class JoinSpec(SpecComponent):
         return channel
 
     @property
-    def join(self) -> ChannelT:
+    def join(self) -> KasprChannelT:
         if self._join is None:
             self._join = self._prepare_join()
         return self._join

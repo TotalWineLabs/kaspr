@@ -42,5 +42,13 @@ class KasprTableT(TableT):
         """Delete key in specific partition of table"""
         ...
 
+    @abc.abstractmethod
+    def key_join(self, 
+                 other_table: 'KasprTableT', 
+                 extractor: Any, 
+                 inner: bool = True) -> Any:
+        """Perform key join with another table, return channel of joined values."""
+        ...
+
 class KasprGlobalTableT(KasprTableT):
     ...

@@ -82,11 +82,11 @@ class AppBuilder(AppBuilderT):
     def build(self) -> None:
         """Build agents, tasks, etc. from definition files."""
         for app in self.apps:
-            app.agents
-            app.webviews
             app.tables
             app.joins
-            app.tasks
+            app.tasks            
+            app.agents
+            app.webviews
 
     async def maybe_create_topics(self) -> None:
         """Maybe declare agent input topics."""

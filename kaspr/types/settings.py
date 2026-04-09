@@ -297,6 +297,12 @@ WEB_METRICS_BASE_PATH = _getenv("WEB_METRICS_BASE_PATH", "")
 #: path is absolute.
 DEFINITIONS_DIR = _getenv("DEFINITIONS_DIR", "builders")
 
+#: Serializer used for keys by default when no serializer is specified.
+KEY_SERIALIZER = _getenv("KEY_SERIALIZER", "json")
+
+#: Serializer used for values by default when no serializer is specified.
+VALUE_SERIALIZER = _getenv("VALUE_SERIALIZER", "json")
+
 #: Enable building of stream processors from definition file(s).
 # Set this to False if you don't want to allow defining stream processors with configuration.
 APP_BUILDER_ENABLED = bool(_getenv("APP_BUILDER_ENABLED", True))
@@ -366,6 +372,9 @@ class CustomSettings(Settings):
     scheduler_janitor_clean_interval_seconds: float = SCHEDULER_JANITOR_CLEAN_INTERVAL_SECONDS
     scheduler_janitor_highwater_offset_seconds: float = SCHEDULER_JANITOR_HIGHWATER_OFFSET_SECONDS
 
+    key_serializer: str = KEY_SERIALIZER
+    value_serializer: str = VALUE_SERIALIZER
+
     web_base_path: str = WEB_BASE_PATH
     web_host: str = WEB_HOST
     web_port: int = WEB_PORT
@@ -424,6 +433,8 @@ class CustomSettings(Settings):
         web_host: str = None,
         web_port: int = None,
         web_metrics_base_path: str = None,
+        key_serializer: str = None,
+        value_serializer: str = None,
         definitions_dir: str = None,
         app_builder_enabled: bool = None,
         canonical_url: Union[str, URL] = None,
@@ -502,6 +513,12 @@ class CustomSettings(Settings):
         if web_port is not None:
             self.web_port = web_port
 
+        if key_serializer is not None:
+            self.key_serializer = key_serializer
+
+        if value_serializer is not None:
+            self.value_serializer = value_serializer
+
         if canonical_url:
             self.canonical_url = canonical_url
 
@@ -522,6 +539,8 @@ class CustomSettings(Settings):
             stream_buffer_maxsize=self.stream_buffer_maxsize,
             stream_recovery_delay=self.stream_recovery_delay,
             stream_wait_empty=self.stream_wait_empty,
+            key_serializer=self.key_serializer,
+            value_serializer=self.value_serializer,
             web_host=self.web_host,
             web_port=self.web_port,
             canonical_url=self.canonical_url,
