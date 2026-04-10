@@ -3,6 +3,7 @@ from kaspr.types.models.base import SpecComponent
 from kaspr.types.models.agent import AgentSpec
 from kaspr.types.models.webview import WebViewSpec
 from kaspr.types.models.table import TableSpec
+from kaspr.types.models.join import JoinSpec
 from kaspr.types.models.task import TaskSpec
 from kaspr.types.app import KasprAppT
 from kaspr.types.agent import KasprAgentT
@@ -15,12 +16,14 @@ class AppSpec(SpecComponent):
     agents_spec: Optional[List[AgentSpec]]
     webviews_spec: Optional[List[WebViewSpec]]
     tables_spec: Optional[List[TableSpec]]
+    joins_spec: Optional[List[JoinSpec]]
     tasks_spec: Optional[List[TaskSpec]]
 
     app: KasprAppT = None
     _agents: List[KasprAgentT] = None
     _webviews: List[KasprWebViewT] = None
     _tables: List[KasprTableT] = None
+    _joins: list = None
     _tasks: List[TaskArg] = None
 
     @property
@@ -44,6 +47,13 @@ class AppSpec(SpecComponent):
             if self._tables is None:
                 self._tables = [table.table for table in self.tables_spec]
             return self._tables
+
+    @property
+    def joins(self) -> list:
+        if self.app:
+            if self._joins is None:
+                self._joins = [join.join for join in self.joins_spec]
+            return self._joins
         
     @property
     def tasks(self) -> List[TaskSpec]:
