@@ -42,6 +42,14 @@ class KasprAppT(AppT):
     def scheduler(self) -> MessageSchedulerT:
         ...
 
+    @abc.abstractmethod
+    def register_named_channel(self, name: str, channel: Any) -> None:
+        ... 
+
+    @abc.abstractmethod
+    def resolve_named_channel(self, name: str) -> Any:
+        ...
+
     def Table(
         self,
         name: str,

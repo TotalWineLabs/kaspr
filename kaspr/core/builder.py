@@ -5,6 +5,7 @@ from typing import List
 from pathlib import Path
 from kaspr.types import KasprAppT, AppBuilderT
 from kaspr.types.models import AppSpec, AgentSpec, WebViewSpec, TableSpec, TaskSpec
+from kaspr.types.models.join import JoinSpec
 from kaspr.types.schemas import AppSpecSchema
 from mode.utils.objects import cached_property
 
@@ -18,6 +19,7 @@ class AppBuilder(AppBuilderT):
     _agents: List[AgentSpec] = None
     _webviews: List[WebViewSpec] = None
     _tables: List[TableSpec] = None
+    _joins: List[JoinSpec] = None
     _tasks: List[TaskSpec] = None
 
     def __init__(self, app: KasprAppT) -> None:
@@ -62,6 +64,13 @@ class AppBuilder(AppBuilderT):
         for app in self.apps:
             tables.extend(app.tables_spec)
         return
+
+    def _prepare_joins(self) -> List[JoinSpec]:
+        """Prepare joins from loaded definitions."""
+        joins = []
+        for app in self.apps:
+            joins.extend(app.joins_spec or [])
+        return joins
     
     def _prepare_tasks(self) -> List[TaskSpec]:
         """Prepare tasks from loaded definitions."""
@@ -73,10 +82,11 @@ class AppBuilder(AppBuilderT):
     def build(self) -> None:
         """Build agents, tasks, etc. from definition files."""
         for app in self.apps:
+            app.tables
+            app.joins
+            app.tasks            
             app.agents
             app.webviews
-            app.tables
-            app.tasks
 
     async def maybe_create_topics(self) -> None:
         """Maybe declare agent input topics."""
@@ -110,6 +120,12 @@ class AppBuilder(AppBuilderT):
         if self._tables is None:
             self._tables = self._prepare_tables()
         return self._tables
+
+    @cached_property
+    def joins(self) -> List[JoinSpec]:
+        if self._joins is None:
+            self._joins = self._prepare_joins()
+        return self._joins
     
     @cached_property
     def tasks(self) -> List[TaskSpec]:
