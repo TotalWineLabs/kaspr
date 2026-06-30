@@ -495,7 +495,7 @@ class KasprMonitor(Monitor):
             self._sample_cpu()
             self._sample_memory()
             self._sample_disk_space()
-            if self.app.conf.scheduler_cron_enabled:
+            if self.app.conf.scheduler_enabled and self.app.conf.scheduler_cron_enabled:
                 self._sample_cron_inventory()
 
     def _sample_tables(self):

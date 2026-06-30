@@ -281,7 +281,7 @@ SCHEDULER_JANITOR_HIGHWATER_OFFSET_SECONDS = float(
 )
 
 #: Enable cron scheduling support
-SCHEDULER_CRON_ENABLED = bool(_getenv("SCHEDULER_CRON_ENABLED", True))
+SCHEDULER_CRON_ENABLED = bool(_getenv("SCHEDULER_CRON_ENABLED", False))
 
 #: How often the cron ticker evaluates registry entries (seconds)
 SCHEDULER_CRON_TICK_INTERVAL_SECONDS = float(
@@ -674,6 +674,10 @@ class CustomSettings(Settings):
             )
 
         if self.scheduler_cron_enabled:
+            # Cron requires the scheduler; auto-enable it to avoid
+            # confusing errors when only SCHEDULER_CRON_ENABLED is set.
+            if not self.scheduler_enabled:
+                self.scheduler_enabled = True
             self._validate_cron_settings()
 
         if web_base_path is not None:
