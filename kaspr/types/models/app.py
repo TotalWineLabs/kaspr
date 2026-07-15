@@ -38,7 +38,7 @@ class AppSpec(SpecComponent):
 
         if self.app:
             if self._webviews is None:
-                self._webviews = [webview.webview for webview in self.webviews_spec]
+                self._webviews = WebViewSpec.prepare_webviews(self.webviews_spec)
             return self._webviews
         
     @property
