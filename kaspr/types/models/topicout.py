@@ -1,4 +1,4 @@
-from typing import Optional, Dict, TypeVar, Callable, Union, Awaitable, OrderedDict
+from typing import Optional, Dict, TypeVar, Callable, Union, Awaitable, OrderedDict, Tuple
 from kaspr.types.models.base import SpecComponent
 from kaspr.types.app import KasprAppT
 from kaspr.types.topic import KasprTopicT
@@ -20,6 +20,7 @@ class TopicOutSpec(SpecComponent):
 
     name: Optional[str]
     name_selector: Optional[TopicNameSelector]
+    pass_through: Optional[bool]
     ack: Optional[bool]
     key_serializer: Optional[str]
     value_serializer: Optional[str]
@@ -38,7 +39,7 @@ class TopicOutSpec(SpecComponent):
     _headers_selector_func: Function = None
     _predicate_func: Function = None
 
-    async def send(self, value: T, **kwargs) -> Union[None, OrderedDict]:
+    async def send(self, value: T, **kwargs) -> Union[None, OrderedDict, Tuple[T, OrderedDict]]:
         """Send value to topic according to spec.
 
         If ack is True, returns metadata (offset, timestamp, etc).
@@ -52,6 +53,10 @@ class TopicOutSpec(SpecComponent):
             partition=self.get_partition(value, **kwargs),
             headers=self.get_headers(value, **kwargs),
         )
+        if self.pass_through:
+            if self.ack:
+                return value, (await res)._asdict()
+            return value
         if self.ack:
             return (await res)._asdict()
 

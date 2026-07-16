@@ -22,6 +22,9 @@ class TopicOutSpecSchema(BaseSchema):
         allow_none=True,
         load_default=None,
     )
+    pass_through = fields.Bool(
+        data_key="pass_through", allow_none=True, load_default=False
+    )
     ack = fields.Bool(data_key="ack", allow_none=True, load_default=False)
     key_serializer = fields.Str(
         data_key="key_serializer", allow_none=True, load_default=None
