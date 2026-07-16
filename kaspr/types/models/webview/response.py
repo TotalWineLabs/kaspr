@@ -77,9 +77,11 @@ class WebViewResponseSpec(BaseModel):
         """Build response for error condition."""
         content_type = self.content_type or CONTENT_TYPE["plain"]
 
-        _err = error.to_dict()
+        _err = error.to_dict(include_cause_object=True)
         if self.status_code_selector_error_func:
             status_code = self.status_code_selector_error_func(_err)
+        elif _err.get("status_code") is not None:
+            status_code = _err.get("status_code")
         else:
             status_code = 500
 
@@ -92,6 +94,8 @@ class WebViewResponseSpec(BaseModel):
 
         if self.body_selector_error_func:
             data = self.body_selector_error_func(_err)
+        elif _err.get("cause_response") is not None:
+            data = _err.get("cause_response")
         else:
             data = _err
 

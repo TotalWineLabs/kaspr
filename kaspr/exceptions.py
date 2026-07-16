@@ -36,8 +36,28 @@ class KasprProcessingError(KasprError):
     def __repr__(self):
         return f"{self.__class__.__name__}({self.args[0]!r}, {self.cause!r})"
 
-    def to_dict(self):
-        return {
+    def to_dict(self, include_cause_object: bool = False):
+        payload = {
             "operation": self.operation,
+            "message": self.args[0] if self.args else None,
+            # Keep `cause` as a string for backwards compatibility.
             "cause": str(self.cause) if self.cause else None,
         }
+
+        if include_cause_object:
+            payload["cause_object"] = self.cause
+
+        if self.cause:
+            for attr_name in ("status_code", "code", "details", "message"):
+                if hasattr(self.cause, attr_name):
+                    payload[attr_name] = getattr(self.cause, attr_name)
+
+            to_response = getattr(self.cause, "to_response", None)
+            if callable(to_response):
+                try:
+                    payload["cause_response"] = to_response()
+                except Exception:
+                    # The original cause is still available via `cause_object`.
+                    payload["cause_response"] = None
+
+        return payload
