@@ -86,7 +86,10 @@ class AppBuilder(AppBuilderT):
             app.joins
             app.tasks            
             app.agents
-            app.webviews
+
+        # Register WebViews once across all loaded definitions so
+        # same-path handlers with different methods are combined globally.
+        WebViewSpec.prepare_webviews(self.webviews)
 
     async def maybe_create_topics(self) -> None:
         """Maybe declare agent input topics."""
