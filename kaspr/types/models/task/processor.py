@@ -42,13 +42,14 @@ class TaskProcessorSpec(SpecComponent):
                     return
                 operation = ops[0]
                 operator = operation.operator
+                tables = operation.tables
                 scope = {
                     **init_scope,
                     "context": {**context},
                 }
                 operator.with_scope(scope)
                 # Initial call is always with None value
-                result = await operator.process(None, first_op=True, **kwargs)
+                result = await operator.process(None, first_op=True, **tables, **kwargs)
                 if result == operator.skip_value:
                     return
                 gen = ensure_generator(result, async_gen=isasyncgen(result))
@@ -60,13 +61,14 @@ class TaskProcessorSpec(SpecComponent):
                         for operation in ops[1:]:
                             next_values = []
                             operator = operation.operator
+                            tables = operation.tables
                             for current_value in current_values:
                                 scope = {
                                     **init_scope,
                                     "context": {**context},
                                 }
                                 operator.with_scope(scope)
-                                result = await operator.process(current_value)
+                                result = await operator.process(current_value, **tables)
                                 if result == operator.skip_value:
                                     continue
                                 # Collect all results
@@ -84,13 +86,14 @@ class TaskProcessorSpec(SpecComponent):
                         for operation in ops[1:]:
                             next_values = []
                             operator = operation.operator
+                            tables = operation.tables
                             for current_value in current_values:
                                 scope = {
                                     **init_scope,
                                     "context": {**context},
                                 }
                                 operator.with_scope(scope)
-                                result = await operator.process(current_value)
+                                result = await operator.process(current_value, **tables)
                                 if result == operator.skip_value:
                                     continue
                                 # Collect all results
