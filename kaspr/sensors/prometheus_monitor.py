@@ -129,10 +129,12 @@ class PrometheusMonitor(KasprMonitor):
                 "prometheus_client requires `pip install prometheus_client`."
             )
 
+        # Initialize base monitor state first so metric attributes set below
+        # are not overwritten by KasprMonitor.__init__ defaults.
+        super().__init__(app=app, **kwargs)
         self._initialize_metrics()
         self.expose_metrics()
         self._on_init()
-        super().__init__(app=app, **kwargs)
 
     def _on_init(self):
         """App is preparing to initialize."""
