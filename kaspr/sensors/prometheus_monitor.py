@@ -490,37 +490,37 @@ class PrometheusMonitor(KasprMonitor):
 
         if self.app.conf.scheduler_enabled and self.app.conf.scheduler_cron_enabled:
             # Cron scheduler metrics
-            self.cron_registered_total = Counter(
+            self.cron_registered_metric = Counter(
                 f"{prefix}kms_cron_registered",
                 "Total cron schedules registered",
                 labelnames=[*common_label_keys],
             )
-            self.cron_canceled_total = Counter(
+            self.cron_canceled_metric = Counter(
                 f"{prefix}kms_cron_canceled",
                 "Total cron schedules canceled",
                 labelnames=[*common_label_keys],
             )
-            self.cron_paused_total = Counter(
+            self.cron_paused_metric = Counter(
                 f"{prefix}kms_cron_paused",
                 "Total cron schedules paused",
                 labelnames=[*common_label_keys],
             )
-            self.cron_resumed_total = Counter(
+            self.cron_resumed_metric = Counter(
                 f"{prefix}kms_cron_resumed",
                 "Total cron schedules resumed",
                 labelnames=[*common_label_keys],
             )
-            self.cron_fires_materialized_total = Counter(
+            self.cron_fires_materialized_metric = Counter(
                 f"{prefix}kms_cron_fires_materialized",
                 "Total cron fires materialized into timetable",
                 labelnames=[*common_label_keys],
             )
-            self.cron_fires_missed_total = Counter(
+            self.cron_fires_missed_metric = Counter(
                 f"{prefix}kms_cron_fires_missed",
                 "Total missed cron fires recovered during catchup",
                 labelnames=[*common_label_keys],
             )
-            self.cron_fires_skipped_total = Counter(
+            self.cron_fires_skipped_metric = Counter(
                 f"{prefix}kms_cron_fires_skipped",
                 "Total cron fires skipped due to skip policy",
                 labelnames=[*common_label_keys],
@@ -654,9 +654,10 @@ class PrometheusMonitor(KasprMonitor):
         self.last_location_seq.labels(
             **self.common_labels, type=self.JANITOR, partition=partition
         ).set(last_location.sequence)
-        self.location_lag.labels(
-            **self.common_labels, type=self.JANITOR, partition=partition
-        ).set(state.lag)
+        if state.lag is not None:
+            self.location_lag.labels(
+                **self.common_labels, type=self.JANITOR, partition=partition
+            ).set(state.lag)
         self.active_removals.labels(**self.common_labels, partition=partition).set(
             state.messages_removed
         )
@@ -699,43 +700,43 @@ class PrometheusMonitor(KasprMonitor):
         """Call when a cron schedule is registered."""
         super().on_cron_registered(partition)
         if self.app.conf.scheduler_cron_enabled:
-            self.cron_registered_total.labels(**self.common_labels).inc()
+            self.cron_registered_metric.labels(**self.common_labels).inc()
 
     def on_cron_canceled(self, partition: int):
         """Call when a cron schedule is canceled."""
         super().on_cron_canceled(partition)
         if self.app.conf.scheduler_cron_enabled:
-            self.cron_canceled_total.labels(**self.common_labels).inc()
+            self.cron_canceled_metric.labels(**self.common_labels).inc()
 
     def on_cron_paused(self, partition: int):
         """Call when a cron schedule is paused."""
         super().on_cron_paused(partition)
         if self.app.conf.scheduler_cron_enabled:
-            self.cron_paused_total.labels(**self.common_labels).inc()
+            self.cron_paused_metric.labels(**self.common_labels).inc()
 
     def on_cron_resumed(self, partition: int):
         """Call when a cron schedule is resumed."""
         super().on_cron_resumed(partition)
         if self.app.conf.scheduler_cron_enabled:
-            self.cron_resumed_total.labels(**self.common_labels).inc()
+            self.cron_resumed_metric.labels(**self.common_labels).inc()
 
     def on_cron_fire_materialized(self, partition: int):
         """Call when a cron fire is materialized into the timetable."""
         super().on_cron_fire_materialized(partition)
         if self.app.conf.scheduler_cron_enabled:
-            self.cron_fires_materialized_total.labels(**self.common_labels).inc()
+            self.cron_fires_materialized_metric.labels(**self.common_labels).inc()
 
     def on_cron_fires_missed(self, partition: int, count: int = 1):
         """Call when missed cron fires are recovered during catchup."""
         super().on_cron_fires_missed(partition, count)
         if self.app.conf.scheduler_cron_enabled:
-            self.cron_fires_missed_total.labels(**self.common_labels).inc(count)
+            self.cron_fires_missed_metric.labels(**self.common_labels).inc(count)
 
     def on_cron_fires_skipped(self, partition: int, count: int = 1):
         """Call when cron fires are skipped due to skip policy."""
         super().on_cron_fires_skipped(partition, count)
         if self.app.conf.scheduler_cron_enabled:
-            self.cron_fires_skipped_total.labels(**self.common_labels).inc(count)
+            self.cron_fires_skipped_metric.labels(**self.common_labels).inc(count)
 
     def on_cron_ticker_tick(self, partition: int):
         """Call when cron ticker completes a tick cycle."""
@@ -949,7 +950,7 @@ class PrometheusMonitor(KasprMonitor):
         self.rebalance_done_consumer_latency.observe(
             self.ms_since(state["time_return"])
         )
-        if self.tables:
+        if self.app.tables.recovery.in_recovery:
             self.health.labels(**self.common_labels).set(self.RECOVERING)
 
     def on_rebalance_end(self, app: KasprAppT, state: typing.Dict) -> None:
