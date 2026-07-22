@@ -24,7 +24,10 @@ class WebViewProcessorTopicSendOperator(ProcessorOperatorT, TopicOutSpec):
     async def process(self, value: T, **kwargs) -> T:
         if self.should_skip(value, **kwargs):
             return self.skip_value
-        return await self.send(value, **kwargs)
+        result = await self.send(value, **kwargs)
+        if result is None:
+            return self.skip_value
+        return result
 
 class WebViewProcessorFilterOperator(ProcessorOperatorT, PyCode):
     

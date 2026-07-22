@@ -3,6 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from kaspr.types.models.agent.operations import (
+    AgentProcessorMapOperator,
+    AgentProcessorOperation,
+    AgentProcessorTopicSendOperator,
+)
+from kaspr.types.models.agent.output import AgentOutputSpec
+from kaspr.types.models.agent.processor import AgentProcessorSpec
 from kaspr.types.models.topicout import TopicOutSpec
 from kaspr.types.models.webview.operations import (
     WebViewProcessorMapOperator,
@@ -11,6 +18,7 @@ from kaspr.types.models.webview.operations import (
 )
 from kaspr.types.models.webview.processor import WebViewProcessorSpec
 from kaspr.types.models.webview.response import CONTENT_TYPE, WebViewResponseSpec
+from kaspr.types.schemas.agent.operations import AgentProcessorOperationSchema
 
 
 class DummyAck:
@@ -42,7 +50,24 @@ class DummyApp:
         self.tables = {}
 
     def topic(self, name, **kwargs):
+        if isinstance(self._topic, dict):
+            return self._topic[name]
         return self._topic
+
+
+class DummyStream:
+    def __init__(self, values, event):
+        self._values = iter(values)
+        self.current_event = event
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._values)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
 
 
 class DummyWeb:
@@ -144,6 +169,402 @@ def test_topic_send_failure_keeps_error_behavior_with_pass_through():
 
     with pytest.raises(RuntimeError, match="publish failed"):
         asyncio.run(spec.send(payload))
+
+
+def test_agent_topic_send_schema_loads_topic_send_operator():
+    schema = AgentProcessorOperationSchema()
+
+    result = schema.load(
+        {
+            "name": "publish",
+            "topic_send": {
+                "name": "materialization-requests",
+                "pass_through": True,
+            },
+        }
+    )
+
+    assert result.name == "publish"
+    assert result.topic_send.name == "materialization-requests"
+    assert result.topic_send.pass_through is True
+
+
+def test_agent_topic_send_without_pass_through_stops_downstream_pipeline():
+    publish_topic = DummyTopic()
+    output_topic = DummyTopic()
+    app = DummyApp(
+        {
+            "materialization-requests": publish_topic,
+            "agent-output": output_topic,
+        }
+    )
+
+    prepare_payload = AgentProcessorMapOperator(
+        python="""
+def prepare_payload(value):
+    return {
+        'current': value,
+        'request_event': {
+            'materialization_id': value['id'],
+            'phase': 'requested',
+        },
+    }
+""",
+        entrypoint="prepare_payload",
+    )
+    send_request_event = AgentProcessorTopicSendOperator(
+        name="materialization-requests",
+        name_selector=None,
+        pass_through=False,
+        ack=False,
+        key_serializer=None,
+        value_serializer=None,
+        key_selector=None,
+        value_selector=None,
+        partition_selector=None,
+        headers_selector=None,
+        predicate=None,
+        app=app,
+    )
+    send_request_event._key_selector_func = lambda value, **_kwargs: value[
+        "request_event"
+    ]["materialization_id"]
+    send_request_event._value_selector_func = lambda value, **_kwargs: value[
+        "request_event"
+    ]
+    send_request_event._topics = {}
+    should_not_run = AgentProcessorMapOperator(
+        python="""
+def should_not_run(value):
+    raise AssertionError('downstream operation should not run')
+""",
+        entrypoint="should_not_run",
+    )
+    processor = AgentProcessorSpec(
+        pipeline=["prepare", "publish", "after-publish"],
+        init=None,
+        operations=[
+            AgentProcessorOperation(
+                name="prepare",
+                map=prepare_payload,
+                topic_send=None,
+                filter=None,
+                table_refs=[],
+                app=app,
+            ),
+            AgentProcessorOperation(
+                name="publish",
+                map=None,
+                topic_send=send_request_event,
+                filter=None,
+                table_refs=[],
+                app=app,
+            ),
+            AgentProcessorOperation(
+                name="after-publish",
+                map=should_not_run,
+                topic_send=None,
+                filter=None,
+                table_refs=[],
+                app=app,
+            ),
+        ],
+        app=app,
+    )
+    processor.input = SimpleNamespace(buffer_spec=None)
+    processor.output = AgentOutputSpec(
+        topics_spec=[
+            TopicOutSpec(
+                name="agent-output",
+                name_selector=None,
+                pass_through=False,
+                ack=False,
+                key_serializer=None,
+                value_serializer=None,
+                key_selector=None,
+                value_selector=None,
+                partition_selector=None,
+                headers_selector=None,
+                predicate=None,
+                app=app,
+            )
+        ],
+        app=app,
+    )
+
+    asyncio.run(
+        processor.processor(
+            DummyStream(
+                [{"id": "mat-123", "payload": {"schema": "proposal"}}],
+                event=SimpleNamespace(key="mat-123"),
+            )
+        )
+    )
+
+    assert publish_topic.calls == [
+        {
+            "key_serializer": None,
+            "value_serializer": None,
+            "key": "mat-123",
+            "value": {
+                "materialization_id": "mat-123",
+                "phase": "requested",
+            },
+            "partition": None,
+            "headers": None,
+        }
+    ]
+    assert output_topic.calls == []
+
+
+def test_agent_topic_send_pass_through_preserves_pipeline_value_for_downstream_ops():
+    publish_topic = DummyTopic()
+    output_topic = DummyTopic()
+    app = DummyApp(
+        {
+            "schema-proposals": publish_topic,
+            "agent-output": output_topic,
+        }
+    )
+
+    prepare_payload = AgentProcessorMapOperator(
+        python="""
+def prepare_payload(value):
+    return {
+        'current': value,
+        'schema_proposal': {
+            'materialization_id': value['id'],
+            'schema': value['payload']['schema'],
+        },
+    }
+""",
+        entrypoint="prepare_payload",
+    )
+    send_schema_proposal = AgentProcessorTopicSendOperator(
+        name="schema-proposals",
+        name_selector=None,
+        pass_through=True,
+        ack=False,
+        key_serializer=None,
+        value_serializer=None,
+        key_selector=None,
+        value_selector=None,
+        partition_selector=None,
+        headers_selector=None,
+        predicate=None,
+        app=app,
+    )
+    send_schema_proposal._key_selector_func = lambda value, **_kwargs: value[
+        "schema_proposal"
+    ]["materialization_id"]
+    send_schema_proposal._value_selector_func = lambda value, **_kwargs: value[
+        "schema_proposal"
+    ]
+    send_schema_proposal._headers_selector_func = lambda value, **_kwargs: {
+        "x-source": "agent"
+    }
+    send_schema_proposal._topics = {}
+    finish = AgentProcessorMapOperator(
+        python="""
+def finish(value):
+    return {
+        'materialization_id': value['current']['id'],
+        'schema': value['schema_proposal']['schema'],
+        'status': 'processed',
+    }
+""",
+        entrypoint="finish",
+    )
+    output_spec = TopicOutSpec(
+        name="agent-output",
+        name_selector=None,
+        pass_through=False,
+        ack=False,
+        key_serializer=None,
+        value_serializer=None,
+        key_selector=None,
+        value_selector=None,
+        partition_selector=None,
+        headers_selector=None,
+        predicate=None,
+        app=app,
+    )
+    output_spec._topics = {}
+    processor = AgentProcessorSpec(
+        pipeline=["prepare", "publish", "finish"],
+        init=None,
+        operations=[
+            AgentProcessorOperation(
+                name="prepare",
+                map=prepare_payload,
+                topic_send=None,
+                filter=None,
+                table_refs=[],
+                app=app,
+            ),
+            AgentProcessorOperation(
+                name="publish",
+                map=None,
+                topic_send=send_schema_proposal,
+                filter=None,
+                table_refs=[],
+                app=app,
+            ),
+            AgentProcessorOperation(
+                name="finish",
+                map=finish,
+                topic_send=None,
+                filter=None,
+                table_refs=[],
+                app=app,
+            ),
+        ],
+        app=app,
+    )
+    processor.input = SimpleNamespace(buffer_spec=None)
+    processor.output = AgentOutputSpec(topics_spec=[output_spec], app=app)
+
+    asyncio.run(
+        processor.processor(
+            DummyStream(
+                [{"id": "mat-123", "payload": {"schema": "user.created.v1"}}],
+                event=SimpleNamespace(key="mat-123"),
+            )
+        )
+    )
+
+    assert publish_topic.calls == [
+        {
+            "key_serializer": None,
+            "value_serializer": None,
+            "key": "mat-123",
+            "value": {
+                "materialization_id": "mat-123",
+                "schema": "user.created.v1",
+            },
+            "partition": None,
+            "headers": {"x-source": "agent"},
+        }
+    ]
+    assert output_topic.calls == [
+        {
+            "key_serializer": None,
+            "value_serializer": None,
+            "key": None,
+            "value": {
+                "materialization_id": "mat-123",
+                "schema": "user.created.v1",
+                "status": "processed",
+            },
+            "partition": None,
+            "headers": None,
+        }
+    ]
+
+
+def test_agent_topic_send_predicate_skip_stops_publish_and_downstream():
+    publish_topic = DummyTopic()
+    app = DummyApp({"schema-proposals": publish_topic})
+
+    send_schema_proposal = AgentProcessorTopicSendOperator(
+        name="schema-proposals",
+        name_selector=None,
+        pass_through=True,
+        ack=False,
+        key_serializer=None,
+        value_serializer=None,
+        key_selector=None,
+        value_selector=None,
+        partition_selector=None,
+        headers_selector=None,
+        predicate=None,
+        app=app,
+    )
+    send_schema_proposal._predicate_func = lambda value, **_kwargs: False
+    send_schema_proposal._topics = {}
+    downstream = AgentProcessorMapOperator(
+        python="""
+def downstream(value):
+    raise AssertionError('downstream operation should not run when predicate is false')
+""",
+        entrypoint="downstream",
+    )
+    processor = AgentProcessorSpec(
+        pipeline=["publish", "downstream"],
+        init=None,
+        operations=[
+            AgentProcessorOperation(
+                name="publish",
+                map=None,
+                topic_send=send_schema_proposal,
+                filter=None,
+                table_refs=[],
+                app=app,
+            ),
+            AgentProcessorOperation(
+                name="downstream",
+                map=downstream,
+                topic_send=None,
+                filter=None,
+                table_refs=[],
+                app=app,
+            ),
+        ],
+        app=app,
+    )
+    processor.input = SimpleNamespace(buffer_spec=None)
+    processor.output = None
+
+    asyncio.run(
+        processor.processor(
+            DummyStream([{"id": "mat-123", "payload": {}}], event=SimpleNamespace())
+        )
+    )
+
+    assert publish_topic.calls == []
+
+
+def test_agent_topic_send_failure_surfaces_processor_error():
+    app = DummyApp({"schema-proposals": DummyTopic(should_fail=True)})
+    send_schema_proposal = AgentProcessorTopicSendOperator(
+        name="schema-proposals",
+        name_selector=None,
+        pass_through=True,
+        ack=False,
+        key_serializer=None,
+        value_serializer=None,
+        key_selector=None,
+        value_selector=None,
+        partition_selector=None,
+        headers_selector=None,
+        predicate=None,
+        app=app,
+    )
+    send_schema_proposal._topics = {}
+    processor = AgentProcessorSpec(
+        pipeline=["publish"],
+        init=None,
+        operations=[
+            AgentProcessorOperation(
+                name="publish",
+                map=None,
+                topic_send=send_schema_proposal,
+                filter=None,
+                table_refs=[],
+                app=app,
+            )
+        ],
+        app=app,
+    )
+    processor.input = SimpleNamespace(buffer_spec=None)
+    processor.output = None
+
+    with pytest.raises(RuntimeError, match="publish failed"):
+        asyncio.run(
+            processor.processor(
+                DummyStream([{"id": "mat-123", "payload": {}}], event=SimpleNamespace())
+            )
+        )
 
 
 def test_webview_pipeline_preserves_response_object_with_topic_send_pass_through():
