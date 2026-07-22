@@ -1,6 +1,7 @@
 from typing import Optional, TypeVar, List, Dict, Union
 from kaspr.utils.functional import maybe_async
 from kaspr.types.models.base import SpecComponent
+from kaspr.types.models.topicout import TopicOutSpec
 from kaspr.types.models.pycode import PyCode
 from kaspr.types.operation import ProcessorOperatorT
 from kaspr.types.models.tableref import TableRefSpec
@@ -9,6 +10,25 @@ from kaspr.types.app import KasprAppT
 
 T = TypeVar("T")
 Table = Union[KasprTableT, KasprGlobalTableT]
+
+
+class AgentProcessorTopicSendOperator(ProcessorOperatorT, TopicOutSpec):
+
+    def with_scope(self, scope: Dict[str, T]):
+        # Not applicable for this operator
+        ...
+
+    def execute(self):
+        # Not applicable for this operator
+        ...
+
+    async def process(self, value: T, **kwargs) -> T:
+        if self.should_skip(value, **kwargs):
+            return self.skip_value
+        result = await self.send(value, **kwargs)
+        if result is None:
+            return self.skip_value
+        return result
 
 class AgentProcessorFilterOperator(ProcessorOperatorT, PyCode):
     
@@ -26,6 +46,7 @@ class AgentProcessorMapOperator(ProcessorOperatorT, PyCode):
 
 class AgentProcessorOperation(SpecComponent):
     name: str
+    topic_send: Optional[AgentProcessorTopicSendOperator]
     filter: Optional[AgentProcessorFilterOperator]
     map: Optional[AgentProcessorMapOperator]
     table_refs: Optional[List[TableRefSpec]]
@@ -37,7 +58,10 @@ class AgentProcessorOperation(SpecComponent):
 
     def get_operator(self) -> ProcessorOperatorT:
         """Get the specific operator type for this operation block."""
-        return next((x for x in [self.filter, self.map] if x is not None), None)
+        return next(
+            (x for x in [self.topic_send, self.filter, self.map] if x is not None),
+            None,
+        )
 
     def prepare_tables(self) -> Dict[str, Table]:
         """Tables for operation keyed by argument name."""

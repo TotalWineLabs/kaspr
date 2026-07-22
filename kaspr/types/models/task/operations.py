@@ -34,7 +34,10 @@ class TaskProcessorTopicSendOperator(ProcessorOperatorT, TopicOutSpec):
             predicate = self.should_skip(value, **kwargs)
         if predicate:
             return self.skip_value
-        return await self.send(value, **kwargs)
+        result = await self.send(value, **kwargs)
+        if result is None:
+            return self.skip_value
+        return result
 
 class TaskProcessorMapOperator(ProcessorOperatorT, PyCode):
     """Operator to reformat a value."""

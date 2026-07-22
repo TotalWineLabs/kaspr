@@ -19,6 +19,7 @@ from .pycode import PyCode
 from .agent.processor import AgentProcessorSpec
 from .agent.operations import (
     AgentProcessorOperation,
+    AgentProcessorTopicSendOperator,
     AgentProcessorFilterOperator,
     AgentProcessorMapOperator,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "PyCode",
     "AgentProcessorSpec",
     "AgentProcessorOperation",
+    "AgentProcessorTopicSendOperator",
     "AgentProcessorFilterOperator",
     "AgentProcessorMapOperator",
     "WebViewSpec",
