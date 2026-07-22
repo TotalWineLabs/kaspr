@@ -33,9 +33,11 @@ class TaskProcessorTopicSendOperator(ProcessorOperatorT, TopicOutSpec):
         else:
             predicate = self.should_skip(value, **kwargs)
         if predicate:
+            if self.pass_through:
+                return value
             return self.skip_value
         result = await self.send(value, **kwargs)
-        if result is None:
+        if not self.pass_through and not self.ack:
             return self.skip_value
         return result
 
