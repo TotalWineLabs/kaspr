@@ -29,6 +29,7 @@ class TaskProcessorTopicSendOperator(ProcessorOperatorT, TopicOutSpec):
 
     async def process(self, value: T, first_op=False, **kwargs) -> T:
         if first_op:
+            # first operation in a task pipeline is called with no input value
             predicate = self.should_skip(**kwargs)
         else:
             predicate = self.should_skip(value, **kwargs)
