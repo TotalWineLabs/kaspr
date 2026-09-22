@@ -1,8 +1,12 @@
 from datetime import timedelta
 from faust.exceptions import ImproperlyConfigured
 from kaspr import KasprApp
+from kaspr.core import coordinator_patch
 from kaspr.sensors.prometheus_monitor import PrometheusMonitor
 from kaspr.types.settings import _getenv
+
+# Must run before any consumer is constructed.
+coordinator_patch.apply()
 
 
 app_name = _getenv("APP_NAME", None)
