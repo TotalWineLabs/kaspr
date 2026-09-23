@@ -119,15 +119,8 @@ BROKER_SESSION_TIMEOUT = int(_getenv("BROKER_SESSION_TIMEOUT", 120))
 #: How long the broker waits for a member to rejoin during a rebalance before it
 #: completes the generation without it. This is the budget a worker has to finish
 #: revoking its partitions (flushing buffers, producers and offsets) and send its
-#: JoinGroup request. Exceeding it drops the member from the generation, and under
-#: static group membership (KIP-345) the broker will not evict it either, so the
-#: group cannot converge and rebalancing repeats indefinitely.
-#: Leave unset to inherit faust's default (60s). Set it above the worst-case time
-#: your agents need to drain on revoke.
-#: NOTE: deliberately not declared as a class attribute on CustomSettings -- faust
-#: exposes this as a property, and a class attribute would shadow it and hand the
-#: aiokafka driver a None it cannot multiply.
-BROKER_REBALANCE_TIMEOUT = int(_getenv("BROKER_REBALANCE_TIMEOUT", 0)) or None
+#: JoinGroup request.
+BROKER_REBALANCE_TIMEOUT = int(_getenv("BROKER_REBALANCE_TIMEOUT", 60))
 
 #: The maximum number of records returned in a single call to poll(). 
 # If you find that your application needs more time to process messages you may want to
@@ -365,6 +358,7 @@ class CustomSettings(Settings):
     broker_session_timeout: int = BROKER_SESSION_TIMEOUT
     broker_max_poll_records: int = BROKER_MAX_POLL_RECORDS
     broker_max_poll_interval: int = BROKER_MAX_POLL_INTERVAL    
+    broker_rebalance_timeout: int = BROKER_REBALANCE_TIMEOUT
 
     table_dir: str = TABLE_DIR
 
@@ -522,8 +516,6 @@ class CustomSettings(Settings):
         if broker_session_timeout is not None:
             self.broker_session_timeout = broker_session_timeout
 
-        if broker_rebalance_timeout is None:
-            broker_rebalance_timeout = BROKER_REBALANCE_TIMEOUT
         if broker_rebalance_timeout is not None:
             self.broker_rebalance_timeout = broker_rebalance_timeout
 
@@ -578,7 +570,7 @@ class CustomSettings(Settings):
             broker_commit_interval=self.broker_commit_interval,
             broker_heartbeat_interval=self.broker_heartbeat_interval,
             broker_session_timeout=self.broker_session_timeout,
-            broker_rebalance_timeout=broker_rebalance_timeout,
+            broker_rebalance_timeout=self.broker_rebalance_timeout,
             broker_max_poll_records=self.broker_max_poll_records,
             broker_max_poll_interval=self.broker_max_poll_interval,
             producer_acks=self.producer_acks,
