@@ -168,6 +168,15 @@ BROKER_MAX_POLL_INTERVAL = int(_getenv("BROKER_MAX_POLL_INTERVAL", 1000.0))
 #: path is absolute.
 TABLE_DIR = _getenv("TABLE_DIR", "tables")
 
+#: Once at startup, if the disk usage (0.0 - 1.0) of the table directory is above
+#: this threshold, the databases of table partitions that are no longer assigned
+#: to this worker are deleted, oldest first, until usage is back below it.
+#: Their state is rebuilt from the changelog topic if the partitions return.
+#: Set to 0 to disable.
+TABLE_STALE_PURGE_DISK_USAGE_THRESHOLD = float(
+    _getenv("TABLE_STALE_PURGE_DISK_USAGE_THRESHOLD", 0.8)
+)
+
 #: The default replication factor for topics created by the application.
 TOPIC_REPLICATION_FACTOR = int(_getenv("TOPIC_REPLICATION_FACTOR", 3))
 
@@ -266,7 +275,7 @@ STORE_ROCKSDB_BLOCK_CACHE_COMPRESSED_SIZE = int(
 #: actually reading the file, which can significantly improve
 #: read performance. Defaults to 3.
 STORE_ROCKSDB_BLOOM_FILTER_SIZE = int(
-    _getenv("STORE_ROCKSDB_BLOCK_CACHE_COMPRESSED_SIZE", 3)
+    _getenv("STORE_ROCKSDB_BLOOM_FILTER_SIZE", 3)
 )
 #: If set to true, index and filter blocks will be stored in block cache,
 #: together with all other data blocks.
@@ -390,6 +399,7 @@ class CustomSettings(Settings):
     broker_rebalance_timeout: int = BROKER_REBALANCE_TIMEOUT
 
     table_dir: str = TABLE_DIR
+    table_stale_purge_disk_usage_threshold: float = TABLE_STALE_PURGE_DISK_USAGE_THRESHOLD
 
     topic_replication_factor: int = TOPIC_REPLICATION_FACTOR
     topic_partitions: int = TOPIC_PARTITIONS
@@ -473,6 +483,7 @@ class CustomSettings(Settings):
         stream_recovery_delay: float = None,
         stream_wait_empty: bool = None,
         table_dir: str = None,
+        table_stale_purge_disk_usage_threshold: float = None,
         store_rocksdb_write_buffer_size: int = None,
         store_rocksdb_max_write_buffer_number: int = None,
         store_rocksdb_target_file_size_base: int = None,
@@ -573,6 +584,11 @@ class CustomSettings(Settings):
 
         if table_dir is not None:
             self.table_dir = table_dir
+
+        if table_stale_purge_disk_usage_threshold is not None:
+            self.table_stale_purge_disk_usage_threshold = float(
+                table_stale_purge_disk_usage_threshold
+            )
 
         if web_host is not None:
             self.web_host = web_host

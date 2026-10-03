@@ -8,6 +8,7 @@ from mode.utils.objects import cached_property
 from mode import SyncSignal
 from kaspr.types import CustomSettings, KasprAppT, MessageSchedulerT, AppBuilderT
 from kaspr.scheduler import MessageScheduler
+from kaspr.utils.stale_tables import purge_stale_table_dbs
 
 
 class CustomBootStrategy(BootStrategy):
@@ -64,9 +65,27 @@ class KasprApp(KasprAppT, faust.App):
 
     _named_channels: dict = None
 
+    _stale_tables_purge_scheduled: bool = False
+
     def _init_signals(self) -> None:
         super()._init_signals()
         self.on_rebalance_started = self.on_rebalance_started.with_default_sender(self)
+        self.on_partitions_assigned.connect(self._purge_stale_tables_once)
+
+    async def _purge_stale_tables_once(self, sender, assigned, **kwargs) -> None:
+        """Free disk space held by stale table state, once the assignment is known."""
+        threshold = self.conf.table_stale_purge_disk_usage_threshold
+        # An empty assignment says nothing about which partitions are stale.
+        if self._stale_tables_purge_scheduled or threshold <= 0 or not assigned:
+            return
+        self._stale_tables_purge_scheduled = True
+        self.add_future(self._purge_stale_tables(threshold))
+
+    async def _purge_stale_tables(self, threshold: float) -> None:
+        try:
+            await purge_stale_table_dbs(self, threshold)
+        except Exception:
+            self.log.exception("Failed to purge stale table databases")
 
     def on_init_dependencies(self):
         dependencies = list(super().on_init_dependencies())
