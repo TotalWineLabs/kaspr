@@ -14,6 +14,9 @@ class AgentSpecSchema(BaseSchema):
     isolated_partitions = fields.Bool(
         data_key="isolated_partitions", allow_none=True, load_default=None
     )
+    noack = fields.Bool(
+        data_key="noack", allow_none=True, load_default=None
+    )
     input = fields.Nested(AgentInputSpecSchema(), data_key="input", required=True)
     output = fields.Nested(
         AgentOutputSpecSchema(), data_key="output", allow_none=True, load_default=None

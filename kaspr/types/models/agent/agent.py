@@ -11,6 +11,7 @@ class AgentSpec(SpecComponent):
     name: str
     description: Optional[str]
     isolated_partitions: Optional[bool]
+    noack: Optional[bool]
     input: AgentInputSpec
     output: AgentOutputSpec
     processors: AgentProcessorSpec
@@ -25,6 +26,7 @@ class AgentSpec(SpecComponent):
         processors = self.processors
         processors.input = self.input
         processors.output = self.output
+        processors.noack = self.noack
         return self.app.agent(
             self.input.channel,
             name=self.name,

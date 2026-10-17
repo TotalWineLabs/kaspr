@@ -23,17 +23,21 @@ class AgentProcessorSpec(SpecComponent):
     _output: AgentOutputSpec = None
     _input: AgentInputSpec = None
     _init_scope: Dict[str, Any] = None
+    _noack: Optional[bool] = None
 
     def prepare_processor(self) -> Callable[..., Awaitable[Any]]:
         operations = {op.name: op for op in self.operations}
         input = self.input
         output = self.output
+        noack = self._noack
 
         async def _aprocessor(stream: KasprStreamT):
             context = {"app": self.app}
             if self.init:
                 self.init.with_scope({"context": {**context}})
             init_scope = self.init_scope
+            if noack:
+                stream = stream.noack()
             ops = []
             for name in self.pipeline:
                 if name not in operations:
@@ -163,6 +167,14 @@ class AgentProcessorSpec(SpecComponent):
     @output.setter
     def output(self, outputs: AgentOutputSpec):
         self._output = outputs
+
+    @property
+    def noack(self) -> Optional[bool]:
+        return self._noack
+
+    @noack.setter
+    def noack(self, noack: Optional[bool]):
+        self._noack = noack
 
     @property
     def label(self) -> str:
