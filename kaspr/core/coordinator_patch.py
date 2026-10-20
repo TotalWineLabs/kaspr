@@ -257,14 +257,18 @@ async def _heartbeat_routine(self):
     log.debug("Stopping heartbeat task")
 
 
-def _apply_idle_rejoin() -> str:
-    fixed = hasattr(GroupCoordinator, "_holds_partitions") and hasattr(
+def _idle_rejoin_fixed() -> bool:
+    """Whether the installed aiokafka has the fix of PR #1189."""
+    return hasattr(GroupCoordinator, "_holds_partitions") and hasattr(
         SubscriptionState, "reset_fetcher_idle_time"
     )
+
+
+def _apply_idle_rejoin() -> str:
     return _replace(
         {"ensure_active_group": _ensure_active_group, "_heartbeat_routine": _heartbeat_routine},
         IDLE_REJOIN,
-        fixed,
+        _idle_rejoin_fixed(),
     )
 
 
@@ -486,6 +490,11 @@ async def _do_rejoin_group(self, subscription):
     return True
 
 
+def _stale_assignment_fixed() -> bool:
+    """Whether the installed aiokafka checks an assignment against the subscription."""
+    return hasattr(GroupCoordinator, "_accept_assignment")
+
+
 def _apply_stale_assignment() -> str:
     if RequestStruct is None:
         logger.warning(
@@ -495,9 +504,7 @@ def _apply_stale_assignment() -> str:
         )
         return UNSUPPORTED
     return _replace(
-        {"_do_rejoin_group": _do_rejoin_group},
-        STALE_ASSIGNMENT,
-        hasattr(GroupCoordinator, "_accept_assignment"),
+        {"_do_rejoin_group": _do_rejoin_group}, STALE_ASSIGNMENT, _stale_assignment_fixed()
     )
 
 

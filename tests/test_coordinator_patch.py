@@ -17,6 +17,27 @@ from kaspr.core import coordinator_patch
 
 PATCHED = tuple(coordinator_patch.VERIFIED)
 
+#: The coordinator methods each patch replaces, with Kaspr's copies.
+COPIES = {
+    "idle_rejoin": {
+        "ensure_active_group": coordinator_patch._ensure_active_group,
+        "_heartbeat_routine": coordinator_patch._heartbeat_routine,
+    },
+    "stale_assignment": {"_do_rejoin_group": coordinator_patch._do_rejoin_group},
+}
+#: Whether the installed aiokafka has the fix a patch backports.
+FIXED = {
+    "idle_rejoin": coordinator_patch._idle_rejoin_fixed,
+    "stale_assignment": coordinator_patch._stale_assignment_fixed,
+}
+
+
+def expected_outcome(patch):
+    """What ``apply()`` makes of a patch against the installed aiokafka."""
+    if patch == "stale_assignment" and coordinator_patch.RequestStruct is None:
+        return "unsupported"
+    return "fixed upstream" if FIXED[patch]() else "applied"
+
 
 @pytest.fixture
 def upstream(monkeypatch):
@@ -27,17 +48,18 @@ def upstream(monkeypatch):
     monkeypatch.setattr(coordinator_patch, "_outcomes", None)
 
 
-def test_apply_patches_the_verified_upstream_code(upstream):
+def test_apply_patches_what_aiokafka_has_not_fixed(upstream):
+    expected = {patch: expected_outcome(patch) for patch in COPIES}
+
     outcomes = coordinator_patch.apply()
 
-    assert outcomes == {
-        "idle_rejoin": "applied",
-        "fenced_instance_id": "applied",
-        "stale_assignment": "applied",
-    }
-    assert GroupCoordinator.ensure_active_group is coordinator_patch._ensure_active_group
-    assert GroupCoordinator._heartbeat_routine is coordinator_patch._heartbeat_routine
-    assert GroupCoordinator._do_rejoin_group is coordinator_patch._do_rejoin_group
+    for patch, copies in COPIES.items():
+        assert outcomes[patch] == expected[patch]
+        for name, copy in copies.items():
+            applied = expected[patch] == "applied"
+            assert getattr(GroupCoordinator, name) is (copy if applied else coordinator_patch.UPSTREAM[name])
+    # The fixture unmaps error 82, as before aiokafka 0.15
+    assert outcomes["fenced_instance_id"] == "applied"
     assert Errors.for_code(82) is coordinator_patch.FencedInstanceIdError
 
 
@@ -77,6 +99,8 @@ def test_a_patch_over_changed_upstream_code_is_not_applied(upstream, monkeypatch
     monkeypatch.setattr(GroupCoordinator, "_heartbeat_routine", heartbeat_routine)
     # Half of the upstream fix is not the fix
     monkeypatch.setattr(GroupCoordinator, "_holds_partitions", Mock(), raising=False)
+    monkeypatch.delattr(SubscriptionState, "reset_fetcher_idle_time", raising=False)
+    stale_assignment = expected_outcome("stale_assignment")
 
     with caplog.at_level(logging.WARNING, logger=coordinator_patch.__name__):
         outcomes = coordinator_patch.apply()
@@ -85,17 +109,38 @@ def test_a_patch_over_changed_upstream_code_is_not_applied(upstream, monkeypatch
     # All of a patch or none of it
     assert GroupCoordinator._heartbeat_routine is heartbeat_routine
     assert GroupCoordinator.ensure_active_group is coordinator_patch.UPSTREAM["ensure_active_group"]
-    # The others still apply
-    assert outcomes["stale_assignment"] == "applied"
+    # The others are left to themselves
+    assert outcomes["stale_assignment"] == stale_assignment
     assert outcomes["fenced_instance_id"] == "applied"
-    (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    (warning,) = [r.getMessage() for r in caplog.records if "Re-check" in r.getMessage()]
     assert "GroupCoordinator._heartbeat_routine" in warning
-    assert "Re-check" in warning
 
 
-def test_the_copies_replace_what_they_were_verified_against():
-    for name, upstream in coordinator_patch.UPSTREAM.items():
-        assert coordinator_patch.fingerprint(upstream) in coordinator_patch.VERIFIED[name]
+def test_a_fix_upstream_is_told_by_what_it_adds(monkeypatch):
+    for name in ("_holds_partitions", "_accept_assignment"):
+        monkeypatch.delattr(GroupCoordinator, name, raising=False)
+    monkeypatch.delattr(SubscriptionState, "reset_fetcher_idle_time", raising=False)
+    assert not coordinator_patch._idle_rejoin_fixed()
+    assert not coordinator_patch._stale_assignment_fixed()
+
+    # Half of the fix for #1187 is not the fix
+    monkeypatch.setattr(GroupCoordinator, "_holds_partitions", Mock(), raising=False)
+    assert not coordinator_patch._idle_rejoin_fixed()
+
+    monkeypatch.setattr(SubscriptionState, "reset_fetcher_idle_time", Mock(), raising=False)
+    monkeypatch.setattr(GroupCoordinator, "_accept_assignment", AsyncMock(), raising=False)
+    assert coordinator_patch._idle_rejoin_fixed()
+    assert coordinator_patch._stale_assignment_fixed()
+
+
+@pytest.mark.parametrize("patch", sorted(COPIES))
+def test_the_copies_replace_what_they_were_verified_against(patch):
+    if FIXED[patch]():
+        pytest.skip(
+            f"aiokafka {coordinator_patch.aiokafka_version} has the fix: the {patch} patch can be removed"
+        )
+    for name in COPIES[patch]:
+        assert coordinator_patch.fingerprint(coordinator_patch.UPSTREAM[name]) in coordinator_patch.VERIFIED[name]
 
 
 # -- 1. A consumer holding no partitions can rejoin ---------------------------------------
