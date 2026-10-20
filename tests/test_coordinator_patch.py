@@ -90,6 +90,7 @@ def test_a_patch_fixed_upstream_steps_aside_and_says_it_can_go(upstream, monkeyp
     assert len(removable) == 3
     assert any("aio-libs/aiokafka#1187" in message for message in removable)
     assert any("aio-libs/aiokafka#1186" in message for message in removable)
+    assert any("aio-libs/aiokafka#1208" in message for message in removable)
 
 
 def test_a_patch_over_changed_upstream_code_is_not_applied(upstream, monkeypatch, caplog):
