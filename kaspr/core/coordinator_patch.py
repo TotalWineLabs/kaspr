@@ -17,11 +17,9 @@ All three are about static group membership (KIP-345):
    (aio-libs/aiokafka#1187, fix in PR #1189). A member with no partitions never
    fetches, so its idle time only grows: the heartbeat makes it leave the group and
    ``ensure_active_group()`` then refuses to rejoin it, and rejoining is the only way it
-   would get partitions. That check also ran after the revoke callback and the
-   heartbeat teardown, so a member that declined to rejoin was left silently dead. And
-   a member that did get partitions would be taken for stuck by its first heartbeat,
-   its idle time counting from its last fetch. Replaces ``ensure_active_group`` and
-   ``_heartbeat_routine``.
+   would get partitions. And a member that did get partitions would be taken for stuck
+   by its first heartbeat, its idle time counting from its last fetch. Replaces
+   ``ensure_active_group`` and ``_heartbeat_routine``.
 
 2. Kafka error code 82 (``FENCED_INSTANCE_ID``) has no mapping
    (aio-libs/aiokafka#1186, fixed by PR #1188 for aiokafka 0.15.0), so it resolves to
@@ -147,11 +145,7 @@ def _replace(methods: dict, upstream: str, fixed: bool) -> str:
 
 def _holds_partitions(coordinator) -> bool:
     """Whether this member currently has any partitions assigned."""
-    subscription = coordinator._subscription.subscription
-    if subscription is None:
-        return False
-    assignment = subscription.assignment
-    return assignment is not None and bool(assignment.tps)
+    return bool(coordinator._subscription.assigned_partitions())
 
 
 def _reset_fetcher_idle_time(subscription_state) -> None:
@@ -165,22 +159,12 @@ def _reset_fetcher_idle_time(subscription_state) -> None:
 
 async def _ensure_active_group(self, subscription, prev_assignment):
     """Copy of upstream ``GroupCoordinator.ensure_active_group`` with the fix of PR
-    #1189: the idle check runs before the revoke callback and the heartbeat teardown,
-    skips a member that holds no partitions, and such a member's idle time counts from
-    the moment it joins.
+    #1189: a member that held no partitions may always rejoin, and its idle time
+    counts from the moment it joins.
     """
     if self._subscription.subscribed_pattern:
         await self._client.force_metadata_update()
         if not subscription.active:
-            return None
-
-    # We will not attempt rejoin if there is no activity on consumer. Checked before
-    # revoking and stopping the heartbeat, so a member that declines keeps both. A
-    # member holding no partitions fetches nothing, so its idle time only grows:
-    # rejoining is how it gets partitions, so it may always rejoin.
-    if prev_assignment is not None and prev_assignment.tps:
-        if self._subscription.fetcher_idle_time >= self._max_poll_interval:
-            await asyncio.sleep(self._retry_backoff_ms / 1000)
             return None
 
     if not self._performed_join_prepare:
@@ -192,10 +176,21 @@ async def _ensure_active_group(self, subscription, prev_assignment):
     # callback, as it can commit offsets.
     await self._stop_heartbeat_task()
 
+    # We will not attempt rejoin if there is no activity on consumer. A member that held
+    # no partitions had nothing to fetch, so its idle time only grows, and rejoining is
+    # how it gets partitions in the first place: it may always rejoin. One that held
+    # partitions has begun their reassignment above, so it hands out none of their
+    # records until it rejoins.
+    idle_time = self._subscription.fetcher_idle_time
+    held_partitions = prev_assignment is not None and prev_assignment.tps
+    if held_partitions and idle_time >= self._max_poll_interval:
+        await asyncio.sleep(self._retry_backoff_ms / 1000)
+        return None
+
     success = await self._do_rejoin_group(subscription)
     if success:
         self._performed_join_prepare = False
-        if prev_assignment is None or not prev_assignment.tps:
+        if not held_partitions:
             # It had nothing to fetch, so its idle time only tells how long it went
             # without partitions. Counted from its last fetch, the first heartbeat
             # would take a member that was just given partitions for stuck.

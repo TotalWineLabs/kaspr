@@ -148,14 +148,17 @@ def test_a_member_without_partitions_rejoins_however_long_it_was_idle():
     assert member._subscription.fetcher_idle_time < 60
 
 
-def test_an_idle_member_with_partitions_keeps_its_assignment_and_heartbeat():
-    result, member = ensure_active_group(held=[TopicPartition("orders", 0)])
+def test_an_idle_member_with_partitions_revokes_them_and_does_not_rejoin():
+    tp = TopicPartition("orders", 0)
+    result, member = ensure_active_group(held=[tp])
 
     assert result is None
-    # Declined before revoking anything or stopping the heartbeat
-    member._on_join_prepare.assert_not_awaited()
-    member._stop_heartbeat_task.assert_not_awaited()
     member._do_rejoin_group.assert_not_awaited()
+    # Its partitions go to other members: revoking them begins their reassignment, so
+    # the fetcher hands out none of their records until it rejoins
+    (prev_assignment,), _ = member._on_join_prepare.await_args
+    assert prev_assignment.tps == {tp}
+    member._stop_heartbeat_task.assert_awaited_once_with()
 
 
 def test_a_member_with_partitions_keeps_counting_its_idle_time():
