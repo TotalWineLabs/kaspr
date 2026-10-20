@@ -1,15 +1,217 @@
-"""The aiokafka coordinator patch for a static member handed a stale assignment."""
+"""The aiokafka coordinator patches, and how they step aside for upstream fixes."""
 
 import asyncio
+import logging
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from aiokafka import errors as Errors
 from aiokafka.consumer.group_coordinator import GroupCoordinator
+from aiokafka.consumer.subscription_state import Assignment, SubscriptionState
 from aiokafka.coordinator.protocol import ConsumerProtocol
+from aiokafka.structs import TopicPartition
 
 from kaspr.core import coordinator_patch
+
+PATCHED = tuple(coordinator_patch.VERIFIED)
+
+
+@pytest.fixture
+def upstream(monkeypatch):
+    """aiokafka as released, for ``apply()`` to patch; restored afterwards."""
+    for name in PATCHED:
+        monkeypatch.setattr(GroupCoordinator, name, coordinator_patch.UPSTREAM[name])
+    monkeypatch.setitem(Errors.kafka_errors, coordinator_patch.FENCED_INSTANCE_ID, Errors.UnknownError)
+    monkeypatch.setattr(coordinator_patch, "_outcomes", None)
+
+
+def test_apply_patches_the_verified_upstream_code(upstream):
+    outcomes = coordinator_patch.apply()
+
+    assert outcomes == {
+        "idle_rejoin": "applied",
+        "fenced_instance_id": "applied",
+        "stale_assignment": "applied",
+    }
+    assert GroupCoordinator.ensure_active_group is coordinator_patch._ensure_active_group
+    assert GroupCoordinator._heartbeat_routine is coordinator_patch._heartbeat_routine
+    assert GroupCoordinator._do_rejoin_group is coordinator_patch._do_rejoin_group
+    assert Errors.for_code(82) is coordinator_patch.FencedInstanceIdError
+
+
+def test_apply_is_safe_to_call_again(upstream, monkeypatch):
+    first = coordinator_patch.apply()
+    assert coordinator_patch.apply() is first
+
+    # Patches already in place count as applied, not as changed upstream code
+    monkeypatch.setattr(coordinator_patch, "_outcomes", None)
+    assert coordinator_patch.apply() == first
+
+
+def test_a_patch_fixed_upstream_steps_aside_and_says_it_can_go(upstream, monkeypatch, caplog):
+    monkeypatch.setattr(GroupCoordinator, "_holds_partitions", Mock(), raising=False)
+    monkeypatch.setattr(SubscriptionState, "reset_fetcher_idle_time", Mock(), raising=False)
+    monkeypatch.setattr(GroupCoordinator, "_accept_assignment", AsyncMock(), raising=False)
+    fenced = type("FencedInstanceIdError", (Errors.BrokerResponseError,), {"errno": 82})
+    monkeypatch.setitem(Errors.kafka_errors, 82, fenced)
+
+    with caplog.at_level(logging.WARNING, logger=coordinator_patch.__name__):
+        outcomes = coordinator_patch.apply()
+
+    assert set(outcomes.values()) == {"fixed upstream"}
+    for name in PATCHED:
+        assert getattr(GroupCoordinator, name) is coordinator_patch.UPSTREAM[name]
+    assert Errors.for_code(82) is fenced
+    removable = [r.getMessage() for r in caplog.records if "can be removed" in r.getMessage()]
+    assert len(removable) == 3
+    assert any("aio-libs/aiokafka#1187" in message for message in removable)
+    assert any("aio-libs/aiokafka#1186" in message for message in removable)
+
+
+def test_a_patch_over_changed_upstream_code_is_not_applied(upstream, monkeypatch, caplog):
+    async def heartbeat_routine(self):
+        """Not the code the patch was verified against."""
+
+    monkeypatch.setattr(GroupCoordinator, "_heartbeat_routine", heartbeat_routine)
+    # Half of the upstream fix is not the fix
+    monkeypatch.setattr(GroupCoordinator, "_holds_partitions", Mock(), raising=False)
+
+    with caplog.at_level(logging.WARNING, logger=coordinator_patch.__name__):
+        outcomes = coordinator_patch.apply()
+
+    assert outcomes["idle_rejoin"] == "changed upstream"
+    # All of a patch or none of it
+    assert GroupCoordinator._heartbeat_routine is heartbeat_routine
+    assert GroupCoordinator.ensure_active_group is coordinator_patch.UPSTREAM["ensure_active_group"]
+    # The others still apply
+    assert outcomes["stale_assignment"] == "applied"
+    assert outcomes["fenced_instance_id"] == "applied"
+    (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert "GroupCoordinator._heartbeat_routine" in warning
+    assert "Re-check" in warning
+
+
+def test_the_copies_replace_what_they_were_verified_against():
+    for name, upstream in coordinator_patch.UPSTREAM.items():
+        assert coordinator_patch.fingerprint(upstream) in coordinator_patch.VERIFIED[name]
+
+
+# -- 1. A consumer holding no partitions can rejoin ---------------------------------------
+
+
+def subscribed(tps=(), idle=10_000):
+    """A ``SubscriptionState`` subscribed to ``orders``, holding ``tps``, that last
+    fetched ``idle`` seconds ago. Needs a running event loop."""
+    state = SubscriptionState()
+    state.subscribe(topics={"orders"})
+    state.assign_from_subscribed(set(tps))
+    state._last_fetch_ended = time.monotonic() - idle
+    return state
+
+
+def joining_member(state):
+    """The parts of ``GroupCoordinator`` that ``ensure_active_group`` uses."""
+    return SimpleNamespace(
+        _subscription=state,
+        _client=SimpleNamespace(force_metadata_update=AsyncMock()),
+        _max_poll_interval=300,
+        _retry_backoff_ms=1,
+        _performed_join_prepare=False,
+        _on_join_prepare=AsyncMock(),
+        _stop_heartbeat_task=AsyncMock(),
+        _do_rejoin_group=AsyncMock(return_value=True),
+        _start_heartbeat_task=Mock(),
+    )
+
+
+def ensure_active_group(held, idle=10_000):
+    """Run ``ensure_active_group`` for a member that held ``held``: its result, and the member."""
+
+    async def run():
+        member = joining_member(subscribed(held, idle))
+        subscription = member._subscription.subscription
+        result = await coordinator_patch._ensure_active_group(member, subscription, Assignment(held))
+        return result, member
+
+    return asyncio.run(run())
+
+
+def test_a_member_without_partitions_rejoins_however_long_it_was_idle():
+    result, member = ensure_active_group(held=[])
+
+    assert result is member._subscription.subscription.assignment
+    member._do_rejoin_group.assert_awaited_once()
+    member._start_heartbeat_task.assert_called_once_with()
+    # It gets max_poll_interval to fetch whatever it was just given
+    assert member._subscription.fetcher_idle_time < 60
+
+
+def test_an_idle_member_with_partitions_keeps_its_assignment_and_heartbeat():
+    result, member = ensure_active_group(held=[TopicPartition("orders", 0)])
+
+    assert result is None
+    # Declined before revoking anything or stopping the heartbeat
+    member._on_join_prepare.assert_not_awaited()
+    member._stop_heartbeat_task.assert_not_awaited()
+    member._do_rejoin_group.assert_not_awaited()
+
+
+def test_a_member_with_partitions_keeps_counting_its_idle_time():
+    result, member = ensure_active_group(held=[TopicPartition("orders", 0)], idle=100)
+
+    assert result is member._subscription.subscription.assignment
+    assert member._subscription.fetcher_idle_time >= 100
+
+
+def heartbeat(held, beats=3):
+    """Run the heartbeat of an idle member holding ``held`` until it stopped after
+    ``beats``, or left the group. Returns the member."""
+
+    async def run():
+        member = SimpleNamespace(
+            member_id="member-1",
+            _subscription=subscribed(held),
+            _heartbeat_interval_ms=1,
+            _session_timeout_ms=10_000,
+            _retry_backoff_ms=1,
+            _max_poll_interval=300,
+            ensure_coordinator_known=AsyncMock(),
+            coordinator_dead=Mock(),
+        )
+
+        async def do_heartbeat():
+            if member._do_heartbeat.await_count >= beats:
+                member.member_id = coordinator_patch.UNKNOWN_MEMBER_ID
+            return True
+
+        async def maybe_leave_group():
+            member.member_id = coordinator_patch.UNKNOWN_MEMBER_ID
+
+        member._do_heartbeat = AsyncMock(side_effect=do_heartbeat)
+        member._maybe_leave_group = AsyncMock(side_effect=maybe_leave_group)
+        await coordinator_patch._heartbeat_routine(member)
+        return member
+
+    return asyncio.run(run())
+
+
+def test_the_heartbeat_keeps_an_idle_member_without_partitions_in_the_group():
+    member = heartbeat(held=[])
+
+    assert member._do_heartbeat.await_count == 3
+    member._maybe_leave_group.assert_not_awaited()
+
+
+def test_the_heartbeat_takes_an_idle_member_with_partitions_out_of_the_group():
+    member = heartbeat(held=[TopicPartition("orders", 0)])
+
+    member._maybe_leave_group.assert_awaited_once_with()
+    assert member._do_heartbeat.await_count == 1
+
+
+# -- 3. A static member handed back topics it no longer subscribes to --------------------
 
 
 def assignment_bytes(**partitions):
@@ -40,6 +242,14 @@ def join(monkeypatch):
     return answer
 
 
+@pytest.fixture
+def backoff(monkeypatch):
+    """Records the retry backoffs instead of sleeping them."""
+    sleep = AsyncMock()
+    monkeypatch.setattr(coordinator_patch.asyncio, "sleep", sleep)
+    return sleep
+
+
 def coordinator(instance_id="app-0", leave_errors=(0, 0), send_error=None):
     """The parts of ``GroupCoordinator`` the rejoin uses."""
 
@@ -57,11 +267,12 @@ def coordinator(instance_id="app-0", leave_errors=(0, 0), send_error=None):
         _group_instance_id=instance_id,
         _assignors=[],
         _session_timeout_ms=120000,
-        _retry_backoff_ms=1,
+        _retry_backoff_ms=100,
         _subscription=SimpleNamespace(topics={"orders"}),
         _send_req=AsyncMock(side_effect=send_req),
         _on_join_complete=AsyncMock(),
         reset_generation=Mock(),
+        request_rejoin=Mock(),
     )
 
 
@@ -70,7 +281,7 @@ def rejoin(member, topics=("orders",)):
     return asyncio.run(coordinator_patch._do_rejoin_group(member, subscription))
 
 
-def test_a_static_member_handed_unsubscribed_topics_leaves_and_rejoins_as_new(join):
+def test_a_static_member_handed_unsubscribed_topics_leaves_and_rejoins_as_new(join, backoff):
     join(orders=[0, 1], returns=[0])
     member = coordinator()
 
@@ -86,49 +297,32 @@ def test_a_static_member_handed_unsubscribed_topics_leaves_and_rejoins_as_new(jo
     # Rejoining without a member id makes it a new member, which rebalances the group.
     member.reset_generation.assert_called_once_with()
     member._on_join_complete.assert_not_awaited()
+    backoff.assert_not_awaited()
 
 
 def test_an_assignment_within_the_subscription_completes_the_join(join):
     join(orders=[0, 1])
     member = coordinator()
-    member._kaspr_stale_assignment_leaves = 2
 
     assert rejoin(member) is True
 
     member._on_join_complete.assert_awaited_once_with(7, "member-1", "faust", assignment_bytes(orders=[0, 1]))
     member._send_req.assert_not_awaited()
-    assert member._kaspr_stale_assignment_leaves == 0
 
 
-def test_a_dynamic_member_is_left_to_upstream(join):
+def test_a_dynamic_member_rejoins_after_the_backoff(join, backoff):
     join(orders=[0], returns=[0])
     member = coordinator(instance_id=None)
 
-    assert rejoin(member) is True
+    assert rejoin(member) is False
 
     member._send_req.assert_not_awaited()
-    member._on_join_complete.assert_awaited_once()
+    member._on_join_complete.assert_not_awaited()
+    backoff.assert_awaited_once_with(0.1)
+    member.request_rejoin.assert_called_once_with()
 
 
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"send_error": Errors.KafkaConnectionError()},
-        {"send_error": NotImplementedError("LeaveGroup v3 not supported")},
-        {"leave_errors": (0, coordinator_patch.FENCED_INSTANCE_ID)},
-    ],
-)
-def test_a_member_that_cannot_leave_takes_the_assignment_as_upstream_does(join, kwargs):
-    join(orders=[0], returns=[0])
-    member = coordinator(**kwargs)
-
-    assert rejoin(member) is True
-
-    member.reset_generation.assert_not_called()
-    member._on_join_complete.assert_awaited_once()
-
-
-def test_a_member_the_broker_no_longer_knows_has_left(join):
+def test_a_member_the_broker_no_longer_knows_has_left(join, backoff):
     join(orders=[0], returns=[0])
     member = coordinator(leave_errors=(0, Errors.UnknownMemberIdError.errno))
 
@@ -136,18 +330,54 @@ def test_a_member_the_broker_no_longer_knows_has_left(join):
     member.reset_generation.assert_called_once_with()
 
 
-def test_a_member_handed_stale_assignments_again_and_again_stops_leaving(join):
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"send_error": Errors.KafkaConnectionError()},
+        {"send_error": Errors.RequestTimedOutError()},
+        {"leave_errors": (Errors.GroupCoordinatorNotAvailableError.errno, 0)},
+    ],
+)
+def test_a_member_that_cannot_leave_for_now_tries_again(join, backoff, kwargs):
+    join(orders=[0], returns=[0])
+    member = coordinator(**kwargs)
+
+    assert rejoin(member) is False
+
+    member.reset_generation.assert_not_called()
+    member._on_join_complete.assert_not_awaited()
+    backoff.assert_awaited_once_with(0.1)
+    member.request_rejoin.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    "kwargs, error",
+    [
+        ({"leave_errors": (0, coordinator_patch.FENCED_INSTANCE_ID)}, Errors.BrokerResponseError),
+        ({"send_error": Errors.GroupAuthorizationFailedError()}, Errors.GroupAuthorizationFailedError),
+    ],
+)
+def test_a_member_refused_leaving_for_good_raises(join, backoff, kwargs, error):
+    join(orders=[0], returns=[0])
+    member = coordinator(**kwargs)
+
+    with pytest.raises(error):
+        rejoin(member)
+    member._on_join_complete.assert_not_awaited()
+
+
+def test_a_member_of_a_broker_without_leave_group_v3_raises(join, backoff):
     join(orders=[0], returns=[0])
     member = coordinator()
+    # A broker before Kafka 2.4 stops at LeaveGroup v2
+    member._send_req.side_effect = lambda request: request.prepare({coordinator_patch.LEAVE_GROUP: (0, 2)})
 
-    results = [rejoin(member) for _ in range(coordinator_patch.MAX_STALE_ASSIGNMENT_LEAVES + 1)]
-
-    assert results == [False] * coordinator_patch.MAX_STALE_ASSIGNMENT_LEAVES + [True]
-    assert member._send_req.await_count == coordinator_patch.MAX_STALE_ASSIGNMENT_LEAVES
-    member._on_join_complete.assert_awaited_once()
+    with pytest.raises(Errors.IncompatibleBrokerVersion):
+        rejoin(member)
+    member._on_join_complete.assert_not_awaited()
 
 
-def test_a_join_that_fails_or_whose_subscription_changed_is_retried(join):
+def test_a_join_that_fails_or_whose_subscription_changed_is_retried(join, backoff):
     member = coordinator()
     FakeRebalance.result = None
     assert rejoin(member) is False
@@ -156,16 +386,3 @@ def test_a_join_that_fails_or_whose_subscription_changed_is_retried(join):
     inactive = SimpleNamespace(active=False, topics={"orders"})
     assert asyncio.run(coordinator_patch._do_rejoin_group(member, inactive)) is False
     member._on_join_complete.assert_not_awaited()
-
-
-def test_apply_patches_the_rejoin_once(monkeypatch):
-    original = GroupCoordinator._do_rejoin_group
-    monkeypatch.setattr(coordinator_patch, "_applied", False)
-    try:
-        coordinator_patch.apply()
-        coordinator_patch.apply()
-        assert GroupCoordinator._do_rejoin_group is coordinator_patch._do_rejoin_group
-        assert GroupCoordinator.ensure_active_group is coordinator_patch._ensure_active_group
-    finally:
-        if original is not coordinator_patch._do_rejoin_group:
-            monkeypatch.setattr(GroupCoordinator, "_do_rejoin_group", original)
