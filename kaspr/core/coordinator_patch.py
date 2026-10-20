@@ -30,11 +30,11 @@ All three are about static group membership (KIP-345):
    error.
 
 3. A static member restarted with fewer subscribed topics wedges
-   (aio-libs/aiokafka#1208, PR to be filed). Rejoining a stable group within the session timeout, it
-   gets back the assignment it held, which includes a topic it no longer subscribes
-   to. ``SubscriptionState`` asserts on it ("Received an assignment for unsubscribed
-   topic"), the coordination routine dies, and the member neither consumes nor
-   heartbeats until it is restarted. Such a member now leaves the group under its
+   (aio-libs/aiokafka#1208, fix in PR #1209). Rejoining a stable group within the
+   session timeout, it gets back the assignment it held, which includes a topic it no
+   longer subscribes to. ``SubscriptionState`` asserts on it ("Received an assignment
+   for unsubscribed topic"), the coordination routine dies, and the member neither
+   consumes nor heartbeats until it is restarted. Such a member now leaves the group under its
    ``group.instance.id`` (LeaveGroup v3, Kafka 2.4) and rejoins as a new member, so
    the group rebalances with every member's current subscription. A leave that fails
    with a retriable error is retried; any other error is raised. Replaces
@@ -70,7 +70,7 @@ log = logging.getLogger("aiokafka.consumer.group_coordinator")
 
 IDLE_REJOIN = "aio-libs/aiokafka#1187 (PR #1189)"
 FENCED_INSTANCE = "aio-libs/aiokafka#1186 (PR #1188)"
-STALE_ASSIGNMENT = "aio-libs/aiokafka#1208 (PR to be filed)"
+STALE_ASSIGNMENT = "aio-libs/aiokafka#1208 (PR #1209)"
 
 #: Fingerprints of the upstream methods the patches replace, as verified. Anything else
 #: is not patched. ``ensure_active_group`` is the same from aiokafka 0.12.0 to 0.15.0rc1;
