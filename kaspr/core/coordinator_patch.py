@@ -34,10 +34,10 @@ All three are about static group membership (KIP-345):
    session timeout, it gets back the assignment it held, which includes a topic it no
    longer subscribes to. ``SubscriptionState`` asserts on it ("Received an assignment
    for unsubscribed topic"), the coordination routine dies, and the member neither
-   consumes nor heartbeats until it is restarted. Such a member now leaves the group under its
-   ``group.instance.id`` (LeaveGroup v3, Kafka 2.4) and rejoins as a new member, so
-   the group rebalances with every member's current subscription. A leave that fails
-   with a retriable error is retried; any other error is raised. Replaces
+   consumes nor heartbeats until it is restarted. Such a member now leaves the group
+   under its ``group.instance.id`` (LeaveGroup v3, Kafka 2.4) and rejoins as a new
+   member, so the group rebalances with every member's current subscription. A leave
+   that fails with a retriable error is retried; any other error is raised. Replaces
    ``_do_rejoin_group``. Needs aiokafka 0.13 or later, for its versioned requests.
 
 See https://github.com/aio-libs/aiokafka for the upstream code being patched.
