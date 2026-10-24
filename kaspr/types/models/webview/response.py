@@ -15,6 +15,17 @@ CONTENT_TYPE = {
 }
 
 
+def _responder(web: KasprWeb, content_type: Optional[str]) -> Callable[..., KasprWebResponse]:
+    """The response builder for a content type: text for one it does not know."""
+    if content_type == CONTENT_TYPE["html"]:
+        return web.html
+    if content_type == CONTENT_TYPE["json"]:
+        return web.json
+    if content_type == CONTENT_TYPE["binary"]:
+        return web.bytes
+    return web.text
+
+
 class WebViewResponseSelector(BaseModel):
     on_success: Optional[PyCode]
     on_error: Optional[PyCode]
@@ -22,6 +33,10 @@ class WebViewResponseSelector(BaseModel):
 
 class WebViewResponseSpec(BaseModel):
     content_type: Optional[str]
+    #: The content type of an error response; the view's `content_type` when absent. A view that
+    #: answers binary on success can answer its errors as JSON. A class default, so a spec built
+    #: without it - by code, or from a definition that predates it - reads as before.
+    error_content_type: Optional[str] = None
     status_code: Optional[int]
     headers: Optional[Mapping[str, str]]
     body_selector: Optional[WebViewResponseSelector]
@@ -56,17 +71,7 @@ class WebViewResponseSpec(BaseModel):
         if self.body_selector_success_func:
             data = self.body_selector_success_func(data)
 
-        if self.content_type == CONTENT_TYPE["html"]:
-            response = web.html
-        elif self.content_type == CONTENT_TYPE["json"]:
-            response = web.json
-        elif self.content_type == CONTENT_TYPE["plain"]:
-            response = web.text
-        elif self.content_type == CONTENT_TYPE["binary"]:
-            response = web.bytes
-        else:
-            response = web.text
-
+        response = _responder(web, self.content_type)
         return response(
             data, content_type=content_type, status=status_code, headers=headers
         )
@@ -74,8 +79,9 @@ class WebViewResponseSpec(BaseModel):
     def build_error(
         self, web: KasprWeb, error: KasprProcessingError
     ) -> KasprWebResponse:
-        """Build response for error condition."""
-        content_type = self.content_type or CONTENT_TYPE["plain"]
+        """Build response for error condition, as `error_content_type` when set."""
+        error_content_type = self.error_content_type or self.content_type
+        content_type = error_content_type or CONTENT_TYPE["plain"]
 
         _err = error.to_dict(include_cause_object=True)
         if self.status_code_selector_error_func:
@@ -99,17 +105,7 @@ class WebViewResponseSpec(BaseModel):
         else:
             data = _err
 
-        if self.content_type == CONTENT_TYPE["html"]:
-            response = web.html
-        elif self.content_type == CONTENT_TYPE["json"]:
-            response = web.json
-        elif self.content_type == CONTENT_TYPE["plain"]:
-            response = web.text
-        elif self.content_type == CONTENT_TYPE["binary"]:
-            response = web.bytes
-        else:
-            response = web.text
-
+        response = _responder(web, error_content_type)
         return response(
             data, content_type=content_type, status=status_code, headers=headers
         )
