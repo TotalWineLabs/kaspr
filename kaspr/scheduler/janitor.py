@@ -275,7 +275,6 @@ class Janitor(Service):
                 self.last_location = location
                 # give back control so loop can handle other tasks
                 await asyncio.sleep(0)
-            gc.collect()
             await self.sleep(interval)
 
     def on_changelog_sent(self, location: TTLocation) -> None:
