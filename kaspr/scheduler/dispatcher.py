@@ -254,7 +254,6 @@ class Dispatcher(Service):
                 self.last_location = location
                 # give back control so loop can handle other tasks
                 await asyncio.sleep(0)
-            gc.collect()
             await self.sleep(0.25)
 
     def on_message_sent(self, delivery: TTMessage) -> None:
