@@ -44,7 +44,6 @@ def upstream(monkeypatch):
     """aiokafka as released, for ``apply()`` to patch; restored afterwards."""
     for name in PATCHED:
         monkeypatch.setattr(GroupCoordinator, name, coordinator_patch.UPSTREAM[name])
-    monkeypatch.setitem(Errors.kafka_errors, coordinator_patch.FENCED_INSTANCE_ID, Errors.UnknownError)
     monkeypatch.setattr(coordinator_patch, "_outcomes", None)
 
 
@@ -58,9 +57,6 @@ def test_apply_patches_what_aiokafka_has_not_fixed(upstream):
         for name, copy in copies.items():
             applied = expected[patch] == "applied"
             assert getattr(GroupCoordinator, name) is (copy if applied else coordinator_patch.UPSTREAM[name])
-    # The fixture unmaps error 82, as before aiokafka 0.15
-    assert outcomes["fenced_instance_id"] == "applied"
-    assert Errors.for_code(82) is coordinator_patch.FencedInstanceIdError
 
 
 def test_apply_is_safe_to_call_again(upstream, monkeypatch):
@@ -76,8 +72,6 @@ def test_a_patch_fixed_upstream_steps_aside_and_says_it_can_go(upstream, monkeyp
     monkeypatch.setattr(GroupCoordinator, "_holds_partitions", Mock(), raising=False)
     monkeypatch.setattr(SubscriptionState, "reset_fetcher_idle_time", Mock(), raising=False)
     monkeypatch.setattr(GroupCoordinator, "_accept_assignment", AsyncMock(), raising=False)
-    fenced = type("FencedInstanceIdError", (Errors.BrokerResponseError,), {"errno": 82})
-    monkeypatch.setitem(Errors.kafka_errors, 82, fenced)
 
     with caplog.at_level(logging.WARNING, logger=coordinator_patch.__name__):
         outcomes = coordinator_patch.apply()
@@ -85,11 +79,9 @@ def test_a_patch_fixed_upstream_steps_aside_and_says_it_can_go(upstream, monkeyp
     assert set(outcomes.values()) == {"fixed upstream"}
     for name in PATCHED:
         assert getattr(GroupCoordinator, name) is coordinator_patch.UPSTREAM[name]
-    assert Errors.for_code(82) is fenced
     removable = [r.getMessage() for r in caplog.records if "can be removed" in r.getMessage()]
-    assert len(removable) == 3
+    assert len(removable) == 2
     assert any("aio-libs/aiokafka#1187" in message for message in removable)
-    assert any("aio-libs/aiokafka#1186" in message for message in removable)
     assert any("aio-libs/aiokafka#1208" in message for message in removable)
 
 
@@ -112,7 +104,6 @@ def test_a_patch_over_changed_upstream_code_is_not_applied(upstream, monkeypatch
     assert GroupCoordinator.ensure_active_group is coordinator_patch.UPSTREAM["ensure_active_group"]
     # The others are left to themselves
     assert outcomes["stale_assignment"] == stale_assignment
-    assert outcomes["fenced_instance_id"] == "applied"
     (warning,) = [r.getMessage() for r in caplog.records if "Re-check" in r.getMessage()]
     assert "GroupCoordinator._heartbeat_routine" in warning
 
@@ -402,7 +393,7 @@ def test_a_member_that_cannot_leave_for_now_tries_again(join, backoff, kwargs):
 @pytest.mark.parametrize(
     "kwargs, error",
     [
-        ({"leave_errors": (0, coordinator_patch.FENCED_INSTANCE_ID)}, Errors.BrokerResponseError),
+        ({"leave_errors": (0, 82)}, Errors.BrokerResponseError),
         ({"send_error": Errors.GroupAuthorizationFailedError()}, Errors.GroupAuthorizationFailedError),
     ],
 )

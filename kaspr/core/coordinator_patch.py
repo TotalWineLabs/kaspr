@@ -7,11 +7,11 @@ checks the installed aiokafka before patching, and for each patch
 - skips it if aiokafka already has the fix, and logs a warning that the patch can be
   removed;
 - skips it if the code it replaces is not what it was verified against, and logs a
-  warning to re-check it. Patches 1 and 3 replace whole methods with copies of the
+  warning to re-check it. Both patches replace whole methods with copies of the
   upstream code, so applying them over newer code could undo other upstream changes;
 - applies it otherwise.
 
-All three are about static group membership (KIP-345):
+Both are about static group membership (KIP-345):
 
 1. A consumer holding no partitions can never rejoin after ``max_poll_interval_ms``
    (aio-libs/aiokafka#1187, fix in PR #1189). A member with no partitions never
@@ -21,15 +21,7 @@ All three are about static group membership (KIP-345):
    by its first heartbeat, its idle time counting from its last fetch. Replaces
    ``ensure_active_group`` and ``_heartbeat_routine``.
 
-2. Kafka error code 82 (``FENCED_INSTANCE_ID``) has no mapping
-   (aio-libs/aiokafka#1186, fixed by PR #1188 for aiokafka 0.15.0), so it resolves to
-   ``UnknownError`` and is re-raised as a bare ``KafkaError``, stalling the
-   coordination routine on an error nobody can interpret. It is raised whenever a
-   replacement pod reclaims a ``group.instance.id`` the broker still holds -- which is
-   exactly what happens when a hung member is terminated mid-rebalance. Registers the
-   error.
-
-3. A static member restarted with fewer subscribed topics wedges
+2. A static member restarted with fewer subscribed topics wedges
    (aio-libs/aiokafka#1208, fix in PR #1209). Rejoining a stable group within the
    session timeout, it gets back the assignment it held, which includes a topic it no
    longer subscribes to. ``SubscriptionState`` asserts on it ("Received an assignment
@@ -69,7 +61,6 @@ logger = logging.getLogger(__name__)
 log = logging.getLogger("aiokafka.consumer.group_coordinator")
 
 IDLE_REJOIN = "aio-libs/aiokafka#1187 (PR #1189)"
-FENCED_INSTANCE = "aio-libs/aiokafka#1186 (PR #1188)"
 STALE_ASSIGNMENT = "aio-libs/aiokafka#1208 (PR #1209)"
 
 #: Fingerprints of the upstream methods the patches replace, as verified. Anything else
@@ -87,7 +78,6 @@ UPSTREAM = {name: getattr(GroupCoordinator, name) for name in VERIFIED}
 
 #: ``JoinGroupRequest.UNKNOWN_MEMBER_ID``, ``JoinGroupRequest[0].UNKNOWN_MEMBER_ID`` on 0.12.
 UNKNOWN_MEMBER_ID = ""
-FENCED_INSTANCE_ID = 82
 LEAVE_GROUP = 13
 
 APPLIED = "applied"
@@ -272,45 +262,7 @@ def _apply_idle_rejoin() -> str:
     )
 
 
-# -- 2. FENCED_INSTANCE_ID has no mapping (#1186) --------------------------------------
-
-
-class FencedInstanceIdError(Errors.BrokerResponseError):
-    """Kafka error 82, missing from aiokafka's error table."""
-
-    errno = FENCED_INSTANCE_ID
-    message = "FENCED_INSTANCE_ID"
-    description = (
-        "The broker rejected this static consumer since another consumer with the"
-        " same group.instance.id has registered with a different member.id."
-    )
-
-
-def _apply_fenced_instance_id() -> str:
-    """Make ``Errors.for_code(82)`` resolve to a typed, meaningful error.
-
-    ``kafka_errors`` is built once at import time by walking subclasses, so declaring
-    the class is not enough -- it has to be inserted by hand.
-    """
-    mapped = Errors.for_code(FENCED_INSTANCE_ID)
-    if mapped is FencedInstanceIdError:
-        return APPLIED
-    if mapped is not Errors.UnknownError:
-        logger.warning(
-            "aiokafka %s maps Kafka error %d itself, the fix for %s: Kaspr's patch for"
-            " it is not applied, and can be removed from kaspr/core/coordinator_patch.py.",
-            aiokafka_version,
-            FENCED_INSTANCE_ID,
-            FENCED_INSTANCE,
-        )
-        return FIXED_UPSTREAM
-    Errors.kafka_errors[FENCED_INSTANCE_ID] = FencedInstanceIdError
-    if not hasattr(Errors, "FencedInstanceIdError"):
-        Errors.FencedInstanceIdError = FencedInstanceIdError
-    return APPLIED
-
-
-# -- 3. A static member handed back topics it no longer subscribes to ------------------
+# -- 2. A static member handed back topics it no longer subscribes to ------------------
 
 
 if RequestStruct is not None:
@@ -518,7 +470,6 @@ def apply() -> dict:
     if _outcomes is None:
         _outcomes = {
             "idle_rejoin": _apply_idle_rejoin(),
-            "fenced_instance_id": _apply_fenced_instance_id(),
             "stale_assignment": _apply_stale_assignment(),
         }
         logger.info(
